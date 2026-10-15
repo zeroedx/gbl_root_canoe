@@ -24,8 +24,8 @@ sleep 1
 
 cat > "$MODPATH/module.prop" <<EOF
 id=fake_bl_efisp
-version=5.0
-versionCode=12
+version=6.2.192-r1
+versionCode=14
 author=zaomi
 EOF
 

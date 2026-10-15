@@ -36,9 +36,10 @@ if [ "$LANG" = "zh" ]; then
   TEXT_NO_GBL_VULN="未检测到GBL漏洞"
   TEXT_EFISP_WARN="更新 efisp 启动项失败，继续刷入BL"
   TEXT_SET_RW_FAILED="分区设置可写失败"
-  TEXT_UPDATING_EFISP_TREE="正在更新 efisp 启动项与 Tools"
-  TEXT_EFISP_TREE_OK="efisp 启动项与 Tools 更新完成"
-  TEXT_EFISP_TREE_FAIL="efisp 启动项与 Tools 更新失败"
+  TEXT_UPDATING_EFISP_TREE="正在更新 Tools"
+  TEXT_EFISP_TREE_OK="Tools 更新完成"
+  TEXT_EFISP_TREE_FAIL="Tools 更新失败"
+  TEXT_TOOLS_UPDATED="Tools 已更新"
   TEXT_INSTALL_OLD_VER="你的假回锁是旧版，请OTA最新完整包并在重启前选择刷写到下一槽"
   TEXT_NOT_INSTALLED="你还没有安装假回锁，请重新安装模块选择全新安装"
   TEXT_FLASH_PART="刷写"
@@ -68,9 +69,10 @@ else
   TEXT_NO_GBL_VULN="No GBL vuln found"
   TEXT_EFISP_WARN="efisp boot entries failed, continue BL"
   TEXT_SET_RW_FAILED="setrw failed"
-  TEXT_UPDATING_EFISP_TREE="Updating efisp boot entries and Tools"
-  TEXT_EFISP_TREE_OK="efisp boot entries and Tools update complete"
-  TEXT_EFISP_TREE_FAIL="efisp boot entries and Tools update failed"
+  TEXT_UPDATING_EFISP_TREE="Updating Tools"
+  TEXT_EFISP_TREE_OK="Tools update complete"
+  TEXT_EFISP_TREE_FAIL="Tools update failed"
+  TEXT_TOOLS_UPDATED="Tools updated"
   TEXT_INSTALL_OLD_VER="Your fake-lock is an old version. Please OTA the latest full package and select 'Flash to other slot' before rebooting."
   TEXT_NOT_INSTALLED="Fake-lock is not installed yet. Please reinstall the module and choose a fresh install."
   TEXT_FLASH_PART="Flashing"
@@ -159,6 +161,14 @@ persist_mounted() { grep -q " $PERSIST_MNT " /proc/mounts; }
 # generated at runtime and are not part of the bundle, so they are preserved.
 place_efisp_tree_to() {
   cp -r "$MODDIR/efisp/." "$1/" >> "$LOG_FILE" 2>&1
+}
+
+# Refresh ONLY the tools/ submenu of the \efisp boot root from the bundled
+# module efisp/tools tree (ENTRIES + the EFI applets). BOOTENTRIES, boot.efi and
+# boot_backup.efi are never touched here.
+place_tools_to() {
+  mkdir -p "$1/tools" >> "$LOG_FILE" 2>&1
+  cp -r "$MODDIR/efisp/tools/." "$1/tools/" >> "$LOG_FILE" 2>&1
 }
 
 # Extract and crack the target-slot ABL, then lay out the \efisp boot root
@@ -257,10 +267,11 @@ gbl_exploit_present() {
   [ $? -eq 0 ]
 }
 
-# Refresh only the \efisp boot root from the module efisp/ bundle: replace the
-# BOOTENTRIES list and the tools/ submenu. No ABL is cracked, no slot copy, and
-# no raw-partition write happens; the runtime-generated boot.efi / boot_backup.efi
-# are not in the bundle, so the merge copy preserves them.
+# Refresh only the tools/ submenu of the \efisp boot root from the module
+# efisp/tools bundle. No ABL is cracked, no slot copy, and no raw-partition write
+# happens. BOOTENTRIES, boot.efi and boot_backup.efi are left untouched, so a
+# user with a working boot root can update the Tools applets without disturbing
+# the boot entries.
 #
 # Refuses when boot.efi is missing (the boot root would be left with nothing to
 # chain to). When it is missing, a pre-existing MZ image on the raw efisp
@@ -286,9 +297,9 @@ update_efisp_tree() {
 
   mkdir -p "$EFISP_DIR" >> "$LOG_FILE" 2>&1 || { write_log "$TEXT_EFISP_MKDIR_FAILED"; return 1; }
 
-  place_efisp_tree_to "$EFISP_DIR"
+  place_tools_to "$EFISP_DIR"
   sync
-  write_log "$TEXT_EFISP_FILES_OK"
+  write_log "$TEXT_TOOLS_UPDATED"
   return 0
 }
 
@@ -330,8 +341,9 @@ run_flash() {
   trap cleanup_lock EXIT INT TERM HUP
   : > "$LOG_FILE"
 
-  # efisp tree only: refresh the bundled efisp/ tree (BOOTENTRIES + tools/) on the
-  # persist boot root. No ABL crack, no slot copy, no raw-partition write.
+  # tools only: refresh the tools/ submenu of the persist boot root. BOOTENTRIES
+  # and boot.efi are left untouched. No ABL crack, no slot copy, no raw-partition
+  # write.
   if [ "$mode" = "update-efisp-tree" ]; then
     write_state running "$TEXT_UPDATING_EFISP_TREE"
     update_efisp_tree
