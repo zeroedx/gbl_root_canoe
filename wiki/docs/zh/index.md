@@ -23,7 +23,7 @@ features:
     details: Release 下载与刷机指南 — 真假回锁模式选择与操作流程
     link: /zh/install
   - title: 使用说明
-    details: Superfastboot 命令参考 — BL 锁/解锁、刷写、重启
+    details: Fastboot 命令参考 — BL 锁/解锁、刷写、重启
     link: /zh/usage
   - title: OTA 更新
     details: 小米与一加系统更新安全警告，anti-rollback 熔断风险

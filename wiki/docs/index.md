@@ -23,7 +23,7 @@ features:
     details: Release download & flashing guide — true/fake relock modes and procedures
     link: /install
   - title: Usage
-    details: Superfastboot command reference — lock/unlock BL, flash, reboot
+    details: Fastboot command reference — lock/unlock BL, flash, reboot
     link: /usage
   - title: OTA
     details: Xiaomi & OnePlus update security warnings, anti-rollback fuse risk

@@ -1,4 +1,4 @@
-# Superfastboot Usage Guide
+# Fastboot Usage Guide
 
 
 ## Booting
@@ -45,7 +45,7 @@
 
 ## Rebooting
 
-- Reboot into bootloader; next normal boot enters official fastboot:
+- Reboot into bootloader; next normal boot enters fastboot:
 
   ```bash
   fastboot reboot bootloader
@@ -62,8 +62,3 @@
   ```bash
   fastboot reboot
   ```
-
-
-## Notes
-
-- When OEM unlocking is enabled and the white warning text appears on boot, **press Volume Down to enter Superfastboot mode.**

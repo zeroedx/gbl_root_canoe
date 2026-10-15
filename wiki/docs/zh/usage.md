@@ -1,4 +1,4 @@
-# Superfastboot 使用指南
+# Fastboot 使用指南
 
 
 ## 启动相关
@@ -62,8 +62,3 @@
   ```bash
   fastboot reboot
   ```
-
-
-## 注意事项
-
-- 开启 OEM 解锁且开机出现小白字时，**必须按音量减（Volume Down）键才能进入 Superfastboot 模式。**

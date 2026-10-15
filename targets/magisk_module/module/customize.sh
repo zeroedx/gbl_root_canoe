@@ -47,7 +47,7 @@ if [ "$LANG" = "zh" ]; then
   T_INSTALL_CHOICE="请选择是否第一次安装假回锁"
   T_VOL_UP="音量上为是（全新安装，需要格式化）"
   T_VOL_DOWN="音量下为否（如果之前安装过一次假回锁或者刚刚首次安装并格式化，建议选否）"
-  T_TIP_YES="如果选择是，将会布置 efisp 启动项到 persist 并刷入 BDS 到 efisp，然后重启recovery 进行格式化，格式化后请安装一次这个模块来完成安装，这时选否"
+  T_TIP_YES="如果选择是，将会布置 efisp 启动项到 persist，然后重启recovery 进行格式化，格式化后请安装一次这个模块来完成安装，这时选否"
   T_TIP_NO="如果选择否，将会安装OTA更新补丁，每次OTA更新后都需要打开这个模块来安装补丁，来保留BL版本，安装完成后重启系统即可"
   T_SEL_YES="选择了是，正在安装包含补丁的efisp"
   T_NO_SLOT="无法识别当前槽位，已中止安装"
@@ -66,13 +66,10 @@ if [ "$LANG" = "zh" ]; then
   T_ABLREPO_OK="abl 分区已降级"
   T_ABL_SETRW_FAIL="abl 分区设置可写失败"
   T_ABL_FLASH_FAIL="abl 分区降级刷写失败"
-  T_SETRW_FAIL="efisp 分区设置可写失败"
-  T_FLASH_FAIL="efisp 分区刷写失败"
   T_PERSIST_NOT_MOUNTED="persist 分区未挂载到 /mnt/vendor/persist"
   T_EFISP_DIR_FAIL="创建 efisp 启动目录失败"
   T_EFISP_WRITE_FAIL="写入 efisp 启动文件失败"
   T_PLACE_BOOT="正在布置 efisp 启动项到 persist"
-  T_FLASH_BDS="正在刷入 BDS 到 efisp"
   T_DONE_YES="安装完成，请重启到recovery进行格式化，格式化后请安装一次这个模块来完成安装，这时选否"
   T_SEL_NO="选择了否，正在安装OTA更新模块"
   T_DONE_NO="安装完成，请重启系统即可"
@@ -86,7 +83,7 @@ else
   T_INSTALL_CHOICE="Is this your first time installing Fake BL EFISP?"
   T_VOL_UP="Vol+ = YES (Fresh install, requires format)"
   T_VOL_DOWN="Vol- = NO (If installed before or just formatted)"
-  T_TIP_YES="If YES: efisp boot entries placed on persist and BDS flashed to efisp, reboot to recovery and format data, then reinstall this module and select NO"
+  T_TIP_YES="If YES: efisp boot entries placed on persist, reboot to recovery and format data, then reinstall this module and select NO"
   T_TIP_NO="If NO: OTA patch will be installed, after each OTA, flash this module again to keep BL version"
   T_SEL_YES="Selected YES, installing patched efisp"
   T_NO_SLOT="Failed to detect current slot, abort"
@@ -105,13 +102,10 @@ else
   T_ABLREPO_OK="abl partition downgraded"
   T_ABL_SETRW_FAIL="Failed to set abl to read-write"
   T_ABL_FLASH_FAIL="Failed to flash abl partition"
-  T_SETRW_FAIL="Failed to set efisp to read-write"
-  T_FLASH_FAIL="Failed to flash efisp"
   T_PERSIST_NOT_MOUNTED="persist is not mounted at /mnt/vendor/persist"
   T_EFISP_DIR_FAIL="efisp boot dir create failed"
   T_EFISP_WRITE_FAIL="efisp boot file write failed"
   T_PLACE_BOOT="Placing efisp boot entries on persist"
-  T_FLASH_BDS="Flashing BDS to efisp"
   T_DONE_YES="Install complete. Reboot to recovery and format data, then reinstall module and choose NO"
   T_SEL_NO="Selected NO, installing OTA update patch"
   T_DONE_NO="Install complete, please reboot"
@@ -237,7 +231,8 @@ while true; do
         ui_print "$T_ABLREPO_FAIL"
         abort "abl repo lookup failed"
       fi
-      # Downgrade ONLY the abl partition so it has the vuln to load BDS. Do NOT
+      # Downgrade ONLY the abl partition so it has the vuln to use the efisp
+      # boot root. Do NOT
       # rebuild boot.efi from this image: some systems need the high-version
       # LinuxLoader from the current partition to boot, so boot.efi (already
       # built above from the running ABL) stays untouched. The repo ABL is
@@ -267,17 +262,6 @@ while true; do
       abort "efisp write failed"
     fi
     cp -r "$MODPATH/efisp/." "$EFISP_DIR/" || { ui_print "$T_EFISP_WRITE_FAIL"; abort "efisp write failed"; }
-    sync
-
-    ui_print "$T_FLASH_BDS"
-    if ! blockdev --setrw $BY_NAME_DIR/efisp >> $RUNTIME_DIR/flash.log 2>&1; then
-      ui_print "$T_SETRW_FAIL"
-      abort "setrw failed"
-    fi
-    if ! dd if=$MODPATH/BDS.efi of=$BY_NAME_DIR/efisp bs=4M conv=fsync >> $RUNTIME_DIR/flash.log 2>&1; then
-      ui_print "$T_FLASH_FAIL"
-      abort "flash failed"
-    fi
     sync
     ui_print "$T_DONE_YES"
     rm -rf $RUNTIME_DIR

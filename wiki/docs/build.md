@@ -1,26 +1,36 @@
-# Build Guide: Device-Specific and Generic Versions
+# Build Guide
+
+There is no device-specific or "generic" top-level build; the distributable
+toolkits and module are built with the `target_*` targets, and each toolkit then
+runs its own `build.sh` / `build.bat` against an `abl.img` you supply.
 
 
-## Device-Specific Build
+## Building the Toolkits / Module
 
-1. Place the appropriate `abl.img` file into the `./images` directory of the project.
-
-2. Run the build command:
-
-   ```bash
-   make build
-   ```
-
-
-## Generic Build
-
-Build a generic version that is not tied to a specific device:
+Build from the repository root (see the README for prerequisites):
 
 ```bash
-make build_generic
+make target_toolkit_linux      # toolkit_linux.zip
+make target_toolkit_windows    # toolkit_windows.zip
+make target_toolkit_android    # toolkit_android.zip
+make target_magisk_module      # module_android.zip
 ```
 
+You do **not** need an `abl.img` to build these; the image is only required later
+when you run the toolkit's `build.sh` / `build.bat`.
 
-> Note:  
-> - The device-specific build requires the corresponding `abl.img` to ensure compatibility.  
-> - The generic build works for multiple devices but may have compatibility or performance trade-offs.
+
+## Patching a Specific Device's ABL
+
+1. Place the device's `abl.img` into the toolkit's `./images` folder
+   (`PUT_ABL_IMG_HERE` is only a placeholder).
+2. Run the toolkit's `build.sh` (Linux / Android) or `build.bat` (Windows).
+
+The toolkit extracts and cracks the ABL and lays out an `efisp/` folder
+(`boot.efi`, `BOOTENTRIES`, `tools/`). See the Install page for where those files
+go and what currently loads them.
+
+> Note: because the ABL patch depends on the GBL vulnerability, the ABL must
+> carry it. If `patch_log.txt` reports `Failed to patch ABL GBL`, the `abl`
+> partition must be downgraded to an older ABL that still has the vulnerability
+> before booting.

@@ -2,35 +2,38 @@
 
 ## Boot Flow
 
-The real ABL loads an embedded **superfastboot BDS** off the raw `efisp` partition (via the GBL vulnerability). The BDS then scans a compatible partition for boot entries and chains to the selected one.
+There are two distinct locations, and they must not be confused:
 
-On this device the boot root is the `persist` partition (ext4, auto-mounted at `/mnt/vendor/persist`), under its `efisp/` directory:
+- The raw **`efisp` partition** (`/dev/block/by-name/efisp`) — a bare block device.
+- The **`efisp/` directory** on the `persist` partition (ext4, auto-mounted at `/mnt/vendor/persist`) — a filesystem directory.
 
-| File | Purpose |
+Upstream, the real ABL (via the GBL vulnerability) loaded an embedded **superfastboot BDS** from the raw `efisp` partition. The BDS then scanned the `persist` `efisp/` boot root, read `BOOTENTRIES`, and chained to the selected entry — that was the only component that read those files:
+
+| File (in `persist` `efisp/`) | Purpose |
 |------|---------|
-| `boot.efi` | Cracked ABL with fake re-lock (`ANDROID` entry) |
-| `boot_backup.efi` | Previous `boot.efi` (`ANDROID_BACKUP` entry) |
-| `BOOTENTRIES` | Boot entry list, format `<name>:<path relative to efisp/>` |
+| `boot.efi` | Cracked ABL with fake re-lock (`Android` entry) |
+| `boot_backup.efi` | Previous `boot.efi` (`$Android backup` entry) |
+| `BOOTENTRIES` | Boot entry list for the BDS, format `<name>:<path relative to efisp/>` |
 
-`BDS.efi` is written raw to the `efisp` partition (not into a filesystem).
+> ⚠️ **This fork removes the BDS.** The BDS is no longer built, packaged, or flashed to the `efisp` partition, so **nothing in this fork reads the `persist` `efisp/` boot root or `BOOTENTRIES`**. The cracked `boot.efi` is still produced and written to `persist/efisp/boot.efi`, but it now has **no known load path**. The native (e.g. Xiaomi) fastboot is **not** known to read `BOOTENTRIES` or to load `persist/efisp/boot.efi`.
 
 ## 1. Prerequisite: GBL Vulnerability
 
-The ABL on the `abl` partition must contain the **GBL vulnerability** so it loads the BDS off `efisp`. If your ABL lacks it, flash an **older ABL version** that has the vulnerability to the `abl` partition first. The cracked `boot.efi` does **not** need to match the ABL on the `abl` partition.
+The ABL on the `abl` partition must contain the **GBL vulnerability**, which is what makes the ABL use the `efisp` scenario. If your ABL lacks it, flash an **older ABL version** that has the vulnerability to the `abl` partition first. The cracked `boot.efi` does **not** need to match the ABL on the `abl` partition.
 
 ## 2. Install Method
 
 | Method | Description |
 |--------|-------------|
-| **KernelSU module (Recommended)** | Automated: extracts & cracks the current ABL, lays out the boot root, and flashes the BDS |
-| **Toolkit (Manual)** | For traditional users: run `build.sh` / `build.bat` on your `abl.img`, then place files and flash manually |
+| **KernelSU module (Recommended)** | Automated: extracts & cracks the current ABL and lays out the boot root |
+| **Toolkit (Manual)** | For traditional users: run `build.sh` / `build.bat` on your `abl.img`, then place files manually |
 
 ## 3. Module Install (KernelSU)
 
 ### 3.1 Fresh install
 
 1. Install the module via KernelSU. When prompted, press **Vol+ (YES)**.
-   The module extracts & cracks the current-slot ABL, places `boot.efi` / `BOOTENTRIES` into `/mnt/vendor/persist/efisp/`, and flashes `BDS.efi` to `efisp`.
+   The module extracts & cracks the current-slot ABL and places `boot.efi` / `BOOTENTRIES` into `/mnt/vendor/persist/efisp/`.
 2. Reboot to **Recovery** and **format data**.
    > ⚠️ The first reboot may crash — simply retry.
 3. Reinstall the module and press **Vol- (NO)** to install the OTA-update patch.
@@ -38,28 +41,25 @@ The ABL on the `abl` partition must contain the **GBL vulnerability** so it load
 
 ### 3.2 After an OTA
 
-After each OTA, open the module WebUI and flash again to keep the BL version (re-cracks the new ABL to the inactive slot / refreshes the boot root).
+After each OTA, open the module WebUI and flash again to keep the BL version (re-cracks the new ABL to the inactive slot / refreshes the `persist` `efisp/` tree).
+
+> ⚠️ Reminder: with the BDS removed, this fork produces the `persist` `efisp/` tree but installs nothing that reads it. There is currently **no known load path** for the cracked `boot.efi`.
 
 ## 4. Toolkit Install (Manual)
-
-> The toolkit is manual-install only; superfb does not provide automated installation for toolkit users.
 
 1. Place your `abl.img` in the toolkit `images/` folder and run `build.sh` (Android/Linux) or `build.bat` (Windows). Outputs:
    - `ABL.efi` — cracked ABL (fake re-lock)
    - `ABL_original.efi` — original unpatched ABL
-   - `BDS.efi` — bundled
 2. Create the folder `/mnt/vendor/persist/efisp` (e.g. via MT Manager).
-3. Copy `ABL.efi` into it.
+3. Copy `ABL.efi` into it as `boot.efi`.
 4. Create `BOOTENTRIES` with:
    ```
-   ANDROID:ABL.efi
+   Android:boot.efi
    ```
 5. `sync`
-6. Flash `BDS.efi` to the `efisp` partition:
-   ```
-   dd if=BDS.efi of=/dev/block/by-name/efisp bs=4M
-   ```
    If the build log shows `Failed to patch ABL GBL`, downgrade the `abl` partition to an older ABL with the vulnerability before booting.
+
+> ⚠️ Steps 2–5 lay out the `persist` `efisp/` tree. In this fork (BDS removed) **nothing loads it**; the `BOOTENTRIES` file has no reader.
 
 ## 5. Re-lock Mode
 
@@ -69,7 +69,7 @@ After each OTA, open the module WebUI and flash again to keep the BL version (re
 | **Fake re-lock** | Force-unlocked devices, or devices needing official fastboot as fallback |
 
 - **Fake re-lock**: the cracked `boot.efi` already provides the fake lock.
-- **True re-lock**: boot into the BDS (Super Fastboot) and perform the re-lock operation.
+- **True re-lock**: use the official fastboot of your device to perform the re-lock operation.
   - ✅ Some devices (e.g. Dami): re-lock does **not** wipe data.
   - ⚠️ OnePlus: requires a **deep test unlock**; data will be lost, but root is retained.
 

@@ -15,7 +15,7 @@ const i18n = {
   zh: {
     pageTitle: "假回锁 - BL Flasher",
     ksuWebUI: "KernelSU Module WebUI",
-    heroDesc: "自动识别当前活动槽位，若新版本存在GBL漏洞则跳过BL刷写；将BL镜像刷写到另一槽位，并将破解ABL放入persist的efisp目录、BDS刷入efisp分区",
+    heroDesc: "自动识别当前活动槽位，若新版本存在GBL漏洞则跳过BL刷写；将BL镜像刷写到另一槽位，并将破解ABL与启动项放入persist的efisp目录",
     slotStatus: "槽位状态",
     refresh: "刷新",
     currentSlot: "当前槽位",
@@ -23,12 +23,12 @@ const i18n = {
     imageCount: "镜像数量",
     taskStatus: "任务状态",
     flash: "刷写到另一槽位",
-    bdsTools: "仅更新BDS和Tools",
-    confirmBdsTools: "确认更新 BDS/Tools",
-    modalBdsStep1: "将把 BDS.efi 刷入 efisp 分区，并用模块自带的 efisp 文件夹（BOOTENTRIES 与 tools）替换 persist 上的启动根目录。不会改动 ABL 与 boot.efi。",
-    modalBdsStep2: "第二次确认: 这是高风险写入操作，错误的 BDS 或 efisp 写入可能导致无法进入启动菜单。确认后将立即开始。",
-    toastStartBdsTools: "BDS/Tools 更新任务已启动",
-    toastBdsToolsDone: "BDS/Tools 更新完成",
+    efispTree: "仅更新efisp启动项和Tools",
+    confirmEfispTree: "确认更新 efisp 启动项/Tools",
+    modalEfispStep1: "将用模块自带的 efisp 文件夹（BOOTENTRIES 与 tools）替换 persist 上启动根目录里的启动项。不会改动 ABL 与 boot.efi。",
+    modalEfispStep2: "第二次确认: 这是高风险写入操作，错误的 efisp 写入可能导致无法进入启动菜单。确认后将立即开始。",
+    toastStartEfispTree: "efisp 启动项/Tools 更新任务已启动",
+    toastEfispTreeDone: "efisp 启动项/Tools 更新完成",
     clearLog: "清空日志",
     updateEfisp: "更新 efisp（默认开启）",
     debugMode: "调试模式（仅处理不刷写，efisp 目录使用模块 tmp/efisp）",
@@ -73,7 +73,7 @@ const i18n = {
   en: {
     pageTitle: "Fake Lock - BL Flasher",
     ksuWebUI: "KernelSU Module WebUI",
-    heroDesc: "Auto-detect active slot. Skip BL flash if new build has GBL exploit. Flash BL images to inactive slot, place the cracked ABL in persist's efisp dir and flash the BDS to the efisp partition.",
+    heroDesc: "Auto-detect active slot. Skip BL flash if new build has GBL exploit. Flash BL images to inactive slot, place the cracked ABL and boot entries in persist's efisp dir.",
     slotStatus: "Slot Status",
     refresh: "Refresh",
     currentSlot: "Current Slot",
@@ -81,12 +81,12 @@ const i18n = {
     imageCount: "Image Count",
     taskStatus: "Task Status",
     flash: "Flash To Other Slot",
-    bdsTools: "Update BDS & Tools Only",
-    confirmBdsTools: "Confirm BDS/Tools Update",
-    modalBdsStep1: "Will flash BDS.efi to the efisp partition and replace the persist boot root with the bundled efisp folder (BOOTENTRIES and tools). The ABL and boot.efi are not touched.",
-    modalBdsStep2: "2nd Confirm: This is a high-risk write. A wrong BDS or efisp write may prevent the boot menu from loading. It starts immediately after confirm.",
-    toastStartBdsTools: "BDS/Tools update started",
-    toastBdsToolsDone: "BDS/Tools update completed",
+    efispTree: "Update efisp Entries & Tools Only",
+    confirmEfispTree: "Confirm efisp Entries/Tools Update",
+    modalEfispStep1: "Will replace the boot entries in the persist boot root with the bundled efisp folder (BOOTENTRIES and tools). The ABL and boot.efi are not touched.",
+    modalEfispStep2: "2nd Confirm: This is a high-risk write. A wrong efisp write may prevent the boot menu from loading. It starts immediately after confirm.",
+    toastStartEfispTree: "efisp entries/Tools update started",
+    toastEfispTreeDone: "efisp entries/Tools update completed",
     clearLog: "Clear Log",
     updateEfisp: "Update efisp (on by default)",
     debugMode: "Debug Mode (process only, no flash; efisp dir uses module tmp/efisp)",
@@ -141,7 +141,7 @@ const elements = {
   imageTableBody: document.getElementById("imageTableBody"),
   logOutput: document.getElementById("logOutput"),
   flashButton: document.getElementById("flashButton"),
-  bdsToolsButton: document.getElementById("bdsToolsButton"),
+  efispTreeButton: document.getElementById("efispTreeButton"),
   clearLogButton: document.getElementById("clearLogButton"),
   refreshButton: document.getElementById("refreshButton"),
   confirmModal: document.getElementById("confirmModal"),
@@ -297,7 +297,7 @@ function renderStatus(status) {
   else if (st === "warning" || run) elements.stateChip.classList.add("chip-warn");
   elements.slotChip.textContent = (cur !== "-" && tar !== "-") ? `${state.lang === "zh" ? "当前" : "Current"} ${cur} → ${state.lang === "zh" ? "目标" : "Target"} ${tar}` : t.slotUnknown;
   elements.flashButton.disabled = run || cur === "-" || tar === "-";
-  elements.bdsToolsButton.disabled = run;
+  elements.efispTreeButton.disabled = run;
   elements.clearLogButton.disabled = run;
   renderTable(cur, tar);
 }
@@ -346,9 +346,9 @@ function openConfirmModal(action) {
   const t = i18n[state.lang];
   state.pendingAction = action;
   state.confirmStep = 1;
-  if (action === "bds-tools") {
-    document.querySelector("#modalTitle").textContent = t.confirmBdsTools;
-    elements.confirmText.textContent = t.modalBdsStep1;
+  if (action === "efisp-tree") {
+    document.querySelector("#modalTitle").textContent = t.confirmEfispTree;
+    elements.confirmText.textContent = t.modalEfispStep1;
     elements.nextConfirmButton.textContent = t.continue;
   } else {
     document.querySelector("#modalTitle").textContent = t.confirmFlash;
@@ -370,9 +370,9 @@ function openConfirmModal(action) {
 function handleConfirmProgress() {
   const t = i18n[state.lang];
   if (state.confirmStep === 1) {
-    if (state.pendingAction === "bds-tools") {
+    if (state.pendingAction === "efisp-tree") {
       state.confirmStep = 2;
-      elements.confirmText.textContent = t.modalBdsStep2;
+      elements.confirmText.textContent = t.modalEfispStep2;
       elements.nextConfirmButton.textContent = state.lang === "zh" ? "开始更新" : "Start Update";
       return;
     }
@@ -390,7 +390,7 @@ function handleConfirmProgress() {
   }
   const action = state.pendingAction;
   closeConfirmModal();
-  if (action === "bds-tools") startBdsTools();
+  if (action === "efisp-tree") startEfispTree();
   else startFlash();
 }
 
@@ -411,13 +411,13 @@ function startFlash() {
   manualRefresh();
 }
 
-function startBdsTools() {
+function startEfispTree() {
   const t = i18n[state.lang];
   try {
-    const out = parseKeyValueOutput(runScript("start", "update-bds-tools"));
+    const out = parseKeyValueOutput(runScript("start", "update-efisp-tree"));
     if (out.ALREADY_RUNNING) toast(t.toastRunning);
-    else if (out.STARTED === "1") toast(t.toastStartBdsTools);
-    else if (out.FINISHED === "success") toast(t.toastBdsToolsDone);
+    else if (out.STARTED === "1") toast(t.toastStartEfispTree);
+    else if (out.FINISHED === "success") toast(t.toastEfispTreeDone);
     else if (out.FINISHED === "error") toast(t.toastFailed);
     else toast(t.toastStartError);
   } catch (e) { toast(`${t.startFail}: ${e.message}`); }
@@ -465,14 +465,14 @@ async function init() {
     elements.stateChip.className = "chip chip-danger";
     elements.taskMessage.textContent = e.message;
     elements.flashButton.disabled = true;
-    elements.bdsToolsButton.disabled = true;
+    elements.efispTreeButton.disabled = true;
     elements.clearLogButton.disabled = true;
     return;
   }
 
   elements.refreshButton.addEventListener("click", manualRefresh);
   elements.flashButton.addEventListener("click", () => openConfirmModal("flash"));
-  elements.bdsToolsButton.addEventListener("click", () => openConfirmModal("bds-tools"));
+  elements.efispTreeButton.addEventListener("click", () => openConfirmModal("efisp-tree"));
   elements.clearLogButton.addEventListener("click", clearLog);
   elements.cancelConfirmButton.addEventListener("click", closeConfirmModal);
   elements.nextConfirmButton.addEventListener("click", handleConfirmProgress);

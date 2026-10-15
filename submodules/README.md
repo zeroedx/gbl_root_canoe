@@ -1,7 +1,7 @@
 ### Submodules
 dependences of the project
 # uefi
-builds the superfastboot BDS (BDS.efi), flashed raw to the efisp partition
+builds the boot-menu tools (RebootTools / BLTools / ArbTools), loaded from the efisp boot root
 # ablfvextractor
 extracts the ABL firmware volume (extractfv)
 # patcher

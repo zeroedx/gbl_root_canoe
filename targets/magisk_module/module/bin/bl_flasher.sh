@@ -30,20 +30,17 @@ if [ "$LANG" = "zh" ]; then
   TEXT_EFISP_WRITE_FAILED="写入 efisp 启动文件失败"
   TEXT_BACKUP_BOOT="已备份旧的 boot.efi"
   TEXT_EFISP_FILES_OK="efisp 启动项已更新"
-  TEXT_EFISP_SET_RW_FAILED="efisp 分区设置可写失败"
-  TEXT_EFISP_FLASH_FAILED="efisp 刷写失败"
-  TEXT_EFISP_FLASH_OK="efisp 刷写完成"
-  TEXT_UPDATING_BDS_TOOLS="正在更新 BDS 与 Tools"
-  TEXT_BDS_TOOLS_OK="BDS 与 Tools 更新完成"
-  TEXT_BDS_TOOLS_FAIL="BDS 与 Tools 更新失败"
-  TEXT_BDS_OLD_VER="你的假回锁是旧版，请OTA最新完整包并在重启前选择刷写到下一槽"
-  TEXT_BDS_NOT_INSTALLED="你还没有安装假回锁，请重新安装模块选择全新安装"
   TEXT_GBL_VULN="检测到GBL漏洞，跳过BL刷写"
   TEXT_GBL_VULN_SKIP="已跳过BL刷写"
   TEXT_GBL_DETECT_FAILED="漏洞检测失败，继续流程"
   TEXT_NO_GBL_VULN="未检测到GBL漏洞"
-  TEXT_EFISP_WARN="efisp 刷写失败，继续刷入BL"
+  TEXT_EFISP_WARN="更新 efisp 启动项失败，继续刷入BL"
   TEXT_SET_RW_FAILED="分区设置可写失败"
+  TEXT_UPDATING_EFISP_TREE="正在更新 efisp 启动项与 Tools"
+  TEXT_EFISP_TREE_OK="efisp 启动项与 Tools 更新完成"
+  TEXT_EFISP_TREE_FAIL="efisp 启动项与 Tools 更新失败"
+  TEXT_INSTALL_OLD_VER="你的假回锁是旧版，请OTA最新完整包并在重启前选择刷写到下一槽"
+  TEXT_NOT_INSTALLED="你还没有安装假回锁，请重新安装模块选择全新安装"
   TEXT_FLASH_PART="刷写"
   TEXT_FLASH_OK="完成"
   TEXT_ALL_OK="全部完成（含efisp）"
@@ -65,20 +62,17 @@ else
   TEXT_EFISP_WRITE_FAILED="efisp boot file write failed"
   TEXT_BACKUP_BOOT="Backed up old boot.efi"
   TEXT_EFISP_FILES_OK="efisp boot entries updated"
-  TEXT_EFISP_SET_RW_FAILED="efisp setrw failed"
-  TEXT_EFISP_FLASH_FAILED="efisp flash failed"
-  TEXT_EFISP_FLASH_OK="efisp flash ok"
-  TEXT_UPDATING_BDS_TOOLS="Updating BDS and Tools"
-  TEXT_BDS_TOOLS_OK="BDS and Tools update complete"
-  TEXT_BDS_TOOLS_FAIL="BDS and Tools update failed"
-  TEXT_BDS_OLD_VER="Your fake-lock is an old version. Please OTA the latest full package and select 'Flash to other slot' before rebooting."
-  TEXT_BDS_NOT_INSTALLED="Fake-lock is not installed yet. Please reinstall the module and choose a fresh install."
   TEXT_GBL_VULN="GBL vuln detected, skip BL flash"
   TEXT_GBL_VULN_SKIP="Skipped BL flash"
   TEXT_GBL_DETECT_FAILED="Vuln check failed"
   TEXT_NO_GBL_VULN="No GBL vuln found"
-  TEXT_EFISP_WARN="efisp failed, continue BL"
+  TEXT_EFISP_WARN="efisp boot entries failed, continue BL"
   TEXT_SET_RW_FAILED="setrw failed"
+  TEXT_UPDATING_EFISP_TREE="Updating efisp boot entries and Tools"
+  TEXT_EFISP_TREE_OK="efisp boot entries and Tools update complete"
+  TEXT_EFISP_TREE_FAIL="efisp boot entries and Tools update failed"
+  TEXT_INSTALL_OLD_VER="Your fake-lock is an old version. Please OTA the latest full package and select 'Flash to other slot' before rebooting."
+  TEXT_NOT_INSTALLED="Fake-lock is not installed yet. Please reinstall the module and choose a fresh install."
   TEXT_FLASH_PART="Flashing"
   TEXT_FLASH_OK="done"
   TEXT_ALL_OK="All done (with efisp)"
@@ -91,7 +85,6 @@ RUNTIME_DIR="$MODDIR/tmp"
 BY_NAME_DIR="/dev/block/by-name"
 PERSIST_MNT="/mnt/vendor/persist"
 EFISP_DIR="$PERSIST_MNT/efisp"
-BDS_EFI="$MODDIR/BDS.efi"
 IMAGE_NAMES="abl"
 LOG_FILE="$RUNTIME_DIR/flash.log"
 STATE_FILE="$RUNTIME_DIR/state"
@@ -152,35 +145,32 @@ current_pid() {
 }
 
 # The ext4 persist partition is auto-mounted by init at /mnt/vendor/persist
-# (read-write), and the superfastboot BDS reads its \efisp directory as the boot
-# root. Refuse to proceed when it is not mounted: writing under an unmounted
-# /mnt/vendor/persist would land on the root filesystem and the BDS would never
-# see it. In debug mode the boot root is staged under the module tmp dir
-# instead, so this check does not apply.
+# (read-write), and the \efisp directory there is the boot root. Refuse to proceed
+# when it is not mounted: writing under an unmounted /mnt/vendor/persist would land
+# on the root filesystem. In debug mode the boot root is staged under the module
+# tmp dir instead, so this check does not apply.
 persist_mounted() { grep -q " $PERSIST_MNT " /proc/mounts; }
 
 # Lay out the \efisp boot root from the bundled module efisp/ tree: BOOTENTRIES
 # (with its tools submenu link) plus the tools/ directory and its EFI applets.
-# Each BOOTENTRIES line is "<name>:<path relative to the \efisp boot root>"; the
-# BDS lists only entries whose file actually exists, so the backup entry stays
-# hidden until a previous boot.efi has been backed up. boot.efi / boot_backup.efi
-# are generated at runtime and are not part of the bundle, so they are preserved.
+# Each BOOTENTRIES line is "<name>:<path relative to the \efisp boot root>"; only
+# entries whose file actually exists are listed, so the backup entry stays hidden
+# until a previous boot.efi has been backed up. boot.efi / boot_backup.efi are
+# generated at runtime and are not part of the bundle, so they are preserved.
 place_efisp_tree_to() {
   cp -r "$MODDIR/efisp/." "$1/" >> "$LOG_FILE" 2>&1
 }
 
 # Extract and crack the target-slot ABL, then lay out the \efisp boot root
 # (boot.efi = cracked ABL, boot_backup.efi = the previous one, BOOTENTRIES +
-# tools/ = bundled module efisp tree) and flash the BDS itself to the raw efisp
-# partition. The ABL loaded by the real bootloader is the BDS; the BDS then
-# chains to one of these entries.
+# tools/ = bundled module efisp tree).
 #
 # In debug mode the boot root is staged under $RUNTIME_DIR/efisp and nothing is
 # written to a partition.
 #
-# Returns 2 when the GBL vulnerability is present (the real ABL will load the
-# BDS off efisp, so no slot copy is needed), 0 when it is absent (fall back to
-# copying the ABL to the inactive slot), or 1 on error.
+# Returns 2 when the GBL vulnerability is present (so no slot copy is needed),
+# 0 when it is absent (fall back to copying the ABL to the inactive slot), or 1
+# on error.
 update_efisp() {
   abl=$1
   is_debug=$2
@@ -230,17 +220,6 @@ update_efisp() {
     return 0
   fi
 
-  if ! blockdev --setrw "$BY_NAME_DIR/efisp" >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_SET_RW_FAILED"
-    return 1
-  fi
-  if ! dd if="$BDS_EFI" of="$BY_NAME_DIR/efisp" bs=4M conv=fsync >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_FLASH_FAILED"
-    return 1
-  fi
-  sync
-  write_log "$TEXT_EFISP_FLASH_OK"
-
   if [ "$gbl_vuln" = "1" ]; then
     write_log "$TEXT_GBL_VULN"
     return 2
@@ -263,14 +242,14 @@ detect_gbl_vulnerability() {
 }
 
 # True if the raw efisp partition begins with an MZ (PE/EFI) image header, i.e.
-# a BDS or other EFI app has been flashed to it.
+# a previously flashed EFI app (e.g. a left-over Superfastboot BDS) is present.
 efisp_has_mz() {
   [ -b "$BY_NAME_DIR/efisp" ] || return 1
   [ "$(dd if="$BY_NAME_DIR/efisp" bs=2 count=1 2>/dev/null)" = "MZ" ]
 }
 
-# True if the current-slot ABL carries the GBL exploit (so it would load the
-# BDS off efisp). Returns false when the slot cannot be detected.
+# True if the current-slot ABL carries the GBL exploit. Returns false when the
+# slot cannot be detected.
 gbl_exploit_present() {
   current_slot=$(detect_current_slot) || return 1
   abl=$(partition_path abl "$current_slot")
@@ -278,19 +257,19 @@ gbl_exploit_present() {
   [ $? -eq 0 ]
 }
 
-# Flash BDS.efi raw to the efisp partition, then replace the \efisp boot root's
-# bundled tree (BOOTENTRIES + tools/) with the module efisp/ bundle. No ABL is
-# cracked and no slot copy happens; the runtime-generated boot.efi /
-# boot_backup.efi are not in the bundle, so the merge copy preserves them.
+# Refresh only the \efisp boot root from the module efisp/ bundle: replace the
+# BOOTENTRIES list and the tools/ submenu. No ABL is cracked, no slot copy, and
+# no raw-partition write happens; the runtime-generated boot.efi / boot_backup.efi
+# are not in the bundle, so the merge copy preserves them.
 #
-# Refuses unless boot.efi is already present (the new boot root is laid out);
-# otherwise the refresh would leave the BDS with nothing to chain to. When it is
-# missing, an MZ image on the raw efisp partition plus a working GBL exploit
-# means an older fake-lock install, anything else means never installed.
+# Refuses when boot.efi is missing (the boot root would be left with nothing to
+# chain to). When it is missing, a pre-existing MZ image on the raw efisp
+# partition plus a working GBL exploit means an older install, anything else
+# means never installed.
 #
 # Returns 0 on success, 2 when aborted with a user-facing message already
 # written, 1 on other errors.
-update_bds_tools() {
+update_efisp_tree() {
   if ! persist_mounted; then
     write_log "$TEXT_PERSIST_NOT_MOUNTED"
     return 1
@@ -298,28 +277,15 @@ update_bds_tools() {
 
   if [ ! -f "$EFISP_DIR/boot.efi" ]; then
     if efisp_has_mz && gbl_exploit_present; then
-      write_state error "$TEXT_BDS_OLD_VER"
+      write_state error "$TEXT_INSTALL_OLD_VER"
     else
-      write_state error "$TEXT_BDS_NOT_INSTALLED"
+      write_state error "$TEXT_NOT_INSTALLED"
     fi
     return 2
   fi
 
   mkdir -p "$EFISP_DIR" >> "$LOG_FILE" 2>&1 || { write_log "$TEXT_EFISP_MKDIR_FAILED"; return 1; }
 
-  # 1. Flash the BDS itself to the raw efisp partition.
-  if ! blockdev --setrw "$BY_NAME_DIR/efisp" >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_SET_RW_FAILED"
-    return 1
-  fi
-  if ! dd if="$BDS_EFI" of="$BY_NAME_DIR/efisp" bs=4M conv=fsync >> "$LOG_FILE" 2>&1; then
-    write_log "$TEXT_EFISP_FLASH_FAILED"
-    return 1
-  fi
-  sync
-  write_log "$TEXT_EFISP_FLASH_OK"
-
-  # 2. Replace the boot-root tree (BOOTENTRIES + tools/) with the bundled one.
   place_efisp_tree_to "$EFISP_DIR"
   sync
   write_log "$TEXT_EFISP_FILES_OK"
@@ -364,18 +330,18 @@ run_flash() {
   trap cleanup_lock EXIT INT TERM HUP
   : > "$LOG_FILE"
 
-  # BDS + Tools only: flash BDS to the raw efisp partition and refresh the
-  # bundled efisp/ tree on the persist boot root. No ABL crack, no slot copy.
-  if [ "$mode" = "update-bds-tools" ]; then
-    write_state running "$TEXT_UPDATING_BDS_TOOLS"
-    update_bds_tools
+  # efisp tree only: refresh the bundled efisp/ tree (BOOTENTRIES + tools/) on the
+  # persist boot root. No ABL crack, no slot copy, no raw-partition write.
+  if [ "$mode" = "update-efisp-tree" ]; then
+    write_state running "$TEXT_UPDATING_EFISP_TREE"
+    update_efisp_tree
     res=$?
     if [ $res -eq 0 ]; then
-      write_state success "$TEXT_BDS_TOOLS_OK"
+      write_state success "$TEXT_EFISP_TREE_OK"
     elif [ $res -eq 2 ]; then
       : # aborted, user-facing message already written
     else
-      write_state error "$TEXT_BDS_TOOLS_FAIL"
+      write_state error "$TEXT_EFISP_TREE_FAIL"
     fi
     exit 0
   fi

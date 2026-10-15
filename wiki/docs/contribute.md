@@ -5,9 +5,8 @@
 
 1. Fork the repository  
 2. Modify the code  
-3. Before submitting, run the following commands to ensure code quality:  
+3. Before submitting, confirm it still builds (e.g. `make target_toolkit_linux`), then clean up:
    ```bash
-   make test
    make clean
    ```  
 4. Submit a Pull Request (PR)
