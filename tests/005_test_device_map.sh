@@ -17,6 +17,15 @@ if [ ! -s "$WORK/resolve.sh" ]; then
   exit 1
 fi
 
+# ── Extract the real verify_sha256() from customize.sh. It only uses cut/tr/
+#    sha256sum, so it runs unchanged off-device; the shipped check itself is
+#    exercised rather than a reimplementation of it. ──
+sed -n '/^verify_sha256() {/,/^}/p' "$MODULE/customize.sh" > "$WORK/verify.sh"
+if [ ! -s "$WORK/verify.sh" ]; then
+  fail "could not extract verify_sha256() from customize.sh"
+  exit 1
+fi
+
 cat > "$WORK/getprop" <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -33,6 +42,11 @@ export PATH="$WORK:$PATH"
 resolve() {
   STUB_PRODUCT="$1" STUB_INCR="$2" STUB_DISPLAY="$3" \
     sh -c '. "$1"; resolve_device' _ "$WORK/resolve.sh"
+}
+
+# verify <image> <sha256-file>  -> runs the real verify_sha256() from customize.sh
+verify() {
+  sh -c '. "$1"; verify_sha256 "$2" "$3"' _ "$WORK/verify.sh" "$1" "$2"
 }
 
 echo "--- device identification ---"
@@ -204,15 +218,31 @@ EOF
     fail "could not build the no-vuln fixture generator"
   fi
 
-  # Firmware verification failure: a tampered image must not match its sha256.
+  # Firmware verification: the real verify_sha256() must accept an intact image
+  # and reject a tampered one, checking its actual return status.
+  for p in myron pudding popsicle pandora nezha nezha_global; do
+    if verify "$ABLREPO/$p/abl.img" "$ABLREPO/$p/abl.sha256"; then
+      pass "$p: verify_sha256 accepts the intact firmware"
+    else
+      fail "$p: verify_sha256 rejected the intact firmware"
+    fi
+  done
+
+  # Tamper with a real image but keep the original .sha256: the shipped function
+  # must return non-zero.
   cp "$ABLREPO/pudding/abl.img" "$WORK/tampered.img"
   printf 'X' | dd of="$WORK/tampered.img" bs=1 seek=100 conv=notrunc 2>/dev/null
-  exp=$(cut -d' ' -f1 "$ABLREPO/pudding/abl.sha256" | tr -d '[:space:]')
-  act=$(sha256sum "$WORK/tampered.img" | cut -d' ' -f1)
-  if [ "$exp" != "$act" ]; then
-    pass "firmware verification failure detected (tampered image)"
+  if verify "$WORK/tampered.img" "$ABLREPO/pudding/abl.sha256"; then
+    fail "verify_sha256 accepted a tampered firmware"
   else
-    fail "firmware verification did not detect a tampered image"
+    pass "verify_sha256 rejects a tampered firmware"
+  fi
+
+  # Missing files must also be rejected rather than silently pass.
+  if verify "$WORK/does_not_exist.img" "$ABLREPO/pudding/abl.sha256"; then
+    fail "verify_sha256 accepted a missing firmware file"
+  else
+    pass "verify_sha256 rejects a missing firmware file"
   fi
 fi
 
