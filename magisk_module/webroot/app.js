@@ -27,7 +27,6 @@ const elements = {
   nextConfirmButton: document.getElementById("nextConfirmButton"),
   cancelConfirmButton: document.getElementById("cancelConfirmButton"),
   updateEfispCheckbox: document.getElementById("updateEfispCheckbox"),
-  installSuperfastbootCheckbox: document.getElementById("installSuperfastbootCheckbox"),
   debugModeCheckbox: document.getElementById("debugModeCheckbox"),
 };
 
@@ -186,13 +185,7 @@ function closeConfirmModal() {
 function openConfirmModal() {
   const targetSlot = state.status?.TARGET_SLOT || "?";
   const withEfisp = Boolean(elements.updateEfispCheckbox?.checked);
-  const withSuperfastboot = Boolean(elements.installSuperfastbootCheckbox?.checked);
   const debugMode = Boolean(elements.debugModeCheckbox?.checked);
-
-  if (withSuperfastboot && !withEfisp) {
-    toast("安装 superfastboot 需要同时勾选\"更新 efisp\"");
-    return;
-  }
 
   state.confirmStep = 1;
   let confirmMsg = debugMode
@@ -201,9 +194,7 @@ function openConfirmModal() {
 
   if (!debugMode) {
     if (withEfisp) {
-    confirmMsg += withSuperfastboot
-        ? "，并更新 efisp（包含 superfastboot loader）。"
-        : "，并更新 efisp。";
+      confirmMsg += "，并更新 efisp。";
     } else {
       confirmMsg += "，不更新 efisp。";
     }
@@ -233,14 +224,13 @@ function handleConfirmProgress() {
 
 function startFlash() {
   const withEfisp = elements.updateEfispCheckbox?.checked;
-  const withSuperfastboot = elements.installSuperfastbootCheckbox?.checked;
   const debugMode = elements.debugModeCheckbox?.checked;
 
   let flashMode = "skip-efisp";
   if (debugMode) {
-    flashMode = withSuperfastboot ? "debug-with-superfastboot" : "debug";
+    flashMode = "debug";
   } else if (withEfisp) {
-    flashMode = withSuperfastboot ? "update-efisp-with-superfastboot" : "update-efisp";
+    flashMode = "update-efisp";
   }
 
   try {

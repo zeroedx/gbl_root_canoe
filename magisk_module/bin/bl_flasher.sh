@@ -73,10 +73,9 @@ current_pid() {
 }
 # extractfv and patch_abl from abl_dest
 # 0 success, 1 failed 2 new ABL version with GBL vulnerability detected, skipping BL flash to preserve BL version
-# $1: abl partition path, $2: install_superfastboot (optional, "with-superfastboot" to enable), $3: debug_mode (optional, "debug" to skip flash)
+# $1: abl partition path, $2: debug_mode (optional, "debug" to skip flash)
 patch_efisp() {
-  install_superfastboot="${2:-no-superfastboot}"
-  debug_mode="${3:-no-debug}"
+  debug_mode="${2:-no-debug}"
   rm "$RUNTIME_DIR/patched.efi" 2>/dev/null || true
   rm "$RUNTIME_DIR/patch.log" 2>/dev/null || true
   rm "$RUNTIME_DIR/LinuxLoader.efi" 2>/dev/null || true
@@ -87,28 +86,6 @@ patch_efisp() {
   if [ ! -f "$RUNTIME_DIR/patched.efi" ]; then
     write_log '补丁应用失败'
     return 1
-  fi
-
-  # If superfastboot is enabled, inject loader.elf
-  if [ "$install_superfastboot" = "with-superfastboot" ]; then
-    write_log '正在注入 superfastboot loader...'
-    if [ ! -f "$MODDIR/loader.elf" ]; then
-      write_log 'loader.elf 不存在，无法安装 superfastboot'
-      return 1
-    fi
-    # Inject loader into patched.efi (outputs DLL format)
-    $MODDIR/bin/elf_inject "$MODDIR/loader.elf" "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/injected.dll" >> "$LOG_FILE" 2>&1
-    if [ ! -f "$RUNTIME_DIR/injected.dll" ]; then
-      write_log 'elf_inject 注入失败'
-      return 1
-    fi
-    # Convert DLL back to EFI
-    $MODDIR/bin/GenFw -e UEFI_APPLICATION -o "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/injected.dll" >> "$LOG_FILE" 2>&1
-    if [ ! -f "$RUNTIME_DIR/patched.efi" ]; then
-      write_log 'GenFw 转换失败'
-      return 1
-    fi
-    write_log 'superfastboot loader 注入完成'
   fi
 
   # Skip flash in debug mode
@@ -194,22 +171,12 @@ UPDATED_AT=${_upd}"
 
 run_flash() {
   update_efisp="${1:-skip-efisp}"
-  install_superfastboot="no-superfastboot"
   debug_mode="no-debug"
   # Parse mode
   case "$update_efisp" in
-    "update-efisp-with-superfastboot")
-      update_efisp="update-efisp"
-      install_superfastboot="with-superfastboot"
-      ;;
     "debug")
       debug_mode="debug"
       update_efisp="skip-efisp"
-      ;;
-    "debug-with-superfastboot")
-      debug_mode="debug"
-      update_efisp="update-efisp"
-      install_superfastboot="with-superfastboot"
       ;;
   esac
 
@@ -239,7 +206,7 @@ run_flash() {
     write_log "调试模式：仅处理不刷写"
     abl_part=$(partition_path abl "$target_slot")
     if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
-      patch_efisp "$abl_part" "$install_superfastboot" "$debug_mode"
+      patch_efisp "$abl_part" "$debug_mode"
       ret=$?
       if [ $ret -eq 0 ]; then
         write_state 'success' "调试完成，文件保存在 $RUNTIME_DIR"
@@ -268,7 +235,7 @@ run_flash() {
   if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
     #patch abl and flash efisp first, since it's the only one that can brick the device if something goes wrong
     #0 success, 1 failed, 2 new ABL version with GBL vulnerability detected
-    patch_efisp "$abl_part" "$install_superfastboot" "$debug_mode"
+    patch_efisp "$abl_part" "$debug_mode"
     ret=$?
     case $ret in
       0) ;; # 成功，继续
