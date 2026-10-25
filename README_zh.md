@@ -48,7 +48,9 @@
 - 内核**没有** Baseband Guard 拦截。
 
 **支持机型：**
-模块通过设备代号（`ro.product.name`）识别机型，并为每个受支持机型内置了带漏洞的 ABL：`myron`、`pudding`、`popsicle`、`pandora`、`nezha`、`nezha_global`。其中 `nezha_global` 是 `nezha` 机型的全球版（Global）ROM，其 ABL 固件与 `nezha` 不同，因此单独通过 `...MIXM` 版本后缀进行匹配。其他机型会从云端仓库获取 ABL。若本地内置与云端均无该机型的 ABL，安装会直接中止，不会触碰 `abl` 分区。
+模块通过设备代号（`ro.product.name`）识别机型。当前明确支持的设备标识为：`myron`、`pudding`、`popsicle`、`pandora`、`nezha`、`nezha_global`。模块为上述每个机型内置了带漏洞的 ABL；若本地内置固件缺失或未通过 SHA-256 校验，模块会回退到云端仓库获取，并以同样方式校验下载结果。未知设备不会被映射到其他机型，而是安全中止安装，不会触碰 `abl` 分区。
+
+`nezha` 与 `nezha_global` 保持独立识别与固件映射：`nezha_global` 是 `nezha` 机型的全球版（Global）ROM，其 ABL 固件与 `nezha` 不同，因此单独通过 `...MIXM` 版本后缀匹配，绝不会回退到国行镜像。
 
 **刷入及使用流程：**
 在使用 Root 管理器（KernelSU/Magisk/APatch）刷入该压缩包时，脚本会通过音量键与您交互：
