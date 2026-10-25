@@ -24,6 +24,53 @@ BY_NAME_DIR="/dev/block/by-name"
 RUNTIME_DIR="$MODPATH/tmp"
 mkdir -p "$RUNTIME_DIR"
 partition_path() { printf '%s\n' "$BY_NAME_DIR/${1}${2}"; }
+ABLREPO_URL="https://raw.githubusercontent.com/superturtlee/gbl_root_canoe/main/ablrepo"
+
+# Verify $1 against the sha256 in $2 (first whitespace-delimited token).
+verify_sha256() {
+  [ -f "$1" ] && [ -f "$2" ] || return 1
+  expected=$(cut -d' ' -f1 "$2" | tr -d '[:space:]')
+  actual=$(sha256sum "$1" | cut -d' ' -f1 | tr -d '[:space:]')
+  [ -n "$expected" ] && [ "$expected" = "$actual" ]
+}
+
+# Download $1 into $2 using whichever fetcher is available.
+download_url() {
+  if command -v wget >/dev/null 2>&1; then
+    timeout 60 wget -O "$2" "$1" >/dev/null 2>&1
+  elif command -v curl >/dev/null 2>&1; then
+    timeout 60 curl -fL -o "$2" "$1" >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+
+# Fetch an older ABL with the GBL vulnerability. Looks up the local module
+# bundle first, then the cloud. On success, leaves the image at
+# $RUNTIME_DIR/repo_abl.img and returns 0; otherwise returns 1.
+fetch_abl_from_repo() {
+  product=$(getprop ro.product.name 2>/dev/null)
+  [ -z "$product" ] && return 1
+  local_dir="$MODPATH/ablrepo/$product"
+  if [ -f "$local_dir/abl.img" ]; then
+    if [ -f "$local_dir/abl.sha256" ] && verify_sha256 "$local_dir/abl.img" "$local_dir/abl.sha256"; then
+      cp "$local_dir/abl.img" "$RUNTIME_DIR/repo_abl.img"
+      ui_print "已从本地模块找到 ABL"
+      return 0
+    fi
+    ui_print "本地 ABL 校验失败，尝试云端"
+  fi
+  ui_print "正在从云端下载 ABL..."
+  if download_url "$ABLREPO_URL/$product/abl.sha256" "$RUNTIME_DIR/repo_abl.sha256" && \
+     download_url "$ABLREPO_URL/$product/abl.img" "$RUNTIME_DIR/repo_abl.img"; then
+    if verify_sha256 "$RUNTIME_DIR/repo_abl.img" "$RUNTIME_DIR/repo_abl.sha256"; then
+      return 0
+    fi
+    ui_print "云端 ABL 校验失败"
+  fi
+  return 1
+}
+
 #install efisp
 ui_print "确保你的内核没有Baseband Guard，设备BL锁已经解锁"
 ui_print "确保你的设备是8gen5/8elitegen5"
@@ -50,8 +97,38 @@ while true; do #循环等待用户按键选择，音量上为是，音量下为�
       abort "patch failed"
     fi
     if grep -q "Warning: Failed to patch ABL GBL" "$RUNTIME_DIR/patch.log"; then
-      ui_print "没有GBL漏洞，安装失败，已中止安装"
-      abort "no exploit"
+      ui_print "检测到当前 ABL 没有 GBL 漏洞"
+      ui_print "ABL repo 中有带漏洞的旧版 ABL，是否下载并降级 abl 分区？"
+      ui_print "音量上 = 下载并降级"
+      ui_print "音量下 = 取消"
+      repo_confirm=""
+      while [ -z "$repo_confirm" ]; do
+        keyevent=$(timeout 0.5 getevent -l 2>/dev/null)
+        if echo "$keyevent" | grep -q "KEY_VOLUMEUP"; then
+          repo_confirm=yes
+        elif echo "$keyevent" | grep -q "KEY_VOLUMEDOWN"; then
+          repo_confirm=no
+        fi
+      done
+      if [ "$repo_confirm" = "no" ]; then
+        ui_print "已取消降级，中止安装"
+        abort "downgrade declined"
+      fi
+      if ! fetch_abl_from_repo; then
+        ui_print "ABL repo 查找失败，请手动刷写带 GBL 漏洞的旧版本 ABL 到 abl 分区后重试"
+        abort "abl repo lookup failed"
+      fi
+      ui_print "正在降级 abl 分区..."
+      if ! blockdev --setrw "$abl_part" >> "$RUNTIME_DIR/flash.log" 2>&1; then
+        ui_print "abl 分区设置可写失败"
+        abort "setrw abl failed"
+      fi
+      if ! dd if="$RUNTIME_DIR/repo_abl.img" of="$abl_part" bs=4M conv=fsync >> "$RUNTIME_DIR/flash.log" 2>&1; then
+        ui_print "abl 分区降级刷写失败"
+        abort "downgrade abl failed"
+      fi
+      sync
+      ui_print "abl 分区已降级"
     fi
     if ! blockdev --setrw "/dev/block/by-name/efisp" >> "$MODPATH/tmp/flash.log" 2>&1; then
       ui_print "efisp 分区设置可写失败，已中止安装"

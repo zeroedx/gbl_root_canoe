@@ -29,6 +29,9 @@ release/
 third_party/
 dist/
 
+# Track abl images bundled in the module's ablrepo (checked-in artifacts, not build output)
+!magisk_module/ablrepo/**/*.img
+
 # VS Code
 .vscode/
 
