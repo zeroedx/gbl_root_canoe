@@ -52,11 +52,17 @@ fetch_abl_from_repo() {
   product=$(getprop ro.product.name 2>/dev/null)
   [ -z "$product" ] && return 1
   local_dir="$MODPATH/ablrepo/$product"
+  # Drop any stale image first so a failed fetch cannot leave an old one behind
+  # for the caller to flash.
+  rm -f "$RUNTIME_DIR/repo_abl.img"
   if [ -f "$local_dir/abl.img" ]; then
     if [ -f "$local_dir/abl.sha256" ] && verify_sha256 "$local_dir/abl.img" "$local_dir/abl.sha256"; then
-      cp "$local_dir/abl.img" "$RUNTIME_DIR/repo_abl.img"
-      ui_print "已从本地模块找到 ABL"
-      return 0
+      if cp "$local_dir/abl.img" "$RUNTIME_DIR/repo_abl.img"; then
+        ui_print "已从本地模块找到 ABL"
+        return 0
+      fi
+      ui_print "本地 ABL 复制失败"
+      return 1
     fi
     ui_print "本地 ABL 校验失败，尝试云端"
   fi
