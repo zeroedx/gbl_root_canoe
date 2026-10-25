@@ -47,6 +47,9 @@ The Magisk module is designed to run directly on your rooted Android device.
 - Bootloader must be unlocked.
 - Kernel must NOT have Baseband Guard.
 
+**Supported devices:**
+The module identifies the device by its codename (`ro.product.name`) and bundles a vulnerable ABL for each supported model: `myron`, `pudding`, `popsicle`, `pandora`, `nezha`, and `nezha_global`. `nezha_global` is the global ROM of the `nezha` device; it ships different ABL firmware, so it is matched separately by its `...MIXM` build suffix. For other models the ABL is fetched from the cloud repo. If neither the local bundle nor the cloud has an ABL for the device, installation aborts without touching the `abl` partition.
+
 **Installation & Usage:**
 When flashing the Magisk module via a root manager (like KernelSU, Magisk, or APatch), the customized script will interact with you using the volume keys:
 - **Volume Up (First-time installation):** The script automatically extracts the live `.abl` image, patches it, and flashes the patched file directly to `/dev/block/by-name/efisp`. After this finishes, you must reboot into Recovery mode and **format Data**. Once booted, install this module again (selecting Volume Down the second time) to complete the installation.

@@ -45,12 +45,29 @@ download_url() {
   fi
 }
 
+# Map the running device to its ablrepo directory name. Matching is exact, so a
+# device can never fall back to another device's firmware. The nezha global ROM
+# shares the "nezha" codename but ships different ABL firmware, so it is picked
+# out by its global build suffix (...MIXM); every other device maps by codename.
+resolve_device() {
+  _product=$(getprop ro.product.name 2>/dev/null)
+  case "$_product" in
+    myron|pudding|popsicle|pandora|nezha_global) printf '%s\n' "$_product" ;;
+    nezha)
+      _build="$(getprop ro.build.version.incremental 2>/dev/null)$(getprop ro.build.display.id 2>/dev/null)"
+      case "$_build" in
+        *MIXM*) printf '%s\n' nezha_global ;;
+        *)      printf '%s\n' nezha ;;
+      esac ;;
+    *) return 1 ;;
+  esac
+}
+
 # Fetch an older ABL with the GBL vulnerability. Looks up the local module
 # bundle first, then the cloud. On success, leaves the image at
 # $RUNTIME_DIR/repo_abl.img and returns 0; otherwise returns 1.
 fetch_abl_from_repo() {
-  product=$(getprop ro.product.name 2>/dev/null)
-  [ -z "$product" ] && return 1
+  product=$(resolve_device) || return 1
   local_dir="$MODPATH/ablrepo/$product"
   # Drop any stale image first so a failed fetch cannot leave an old one behind
   # for the caller to flash.

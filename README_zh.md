@@ -47,6 +47,9 @@
 - 设备 BL 锁已经解锁。
 - 内核**没有** Baseband Guard 拦截。
 
+**支持机型：**
+模块通过设备代号（`ro.product.name`）识别机型，并为每个受支持机型内置了带漏洞的 ABL：`myron`、`pudding`、`popsicle`、`pandora`、`nezha`、`nezha_global`。其中 `nezha_global` 是 `nezha` 机型的全球版（Global）ROM，其 ABL 固件与 `nezha` 不同，因此单独通过 `...MIXM` 版本后缀进行匹配。其他机型会从云端仓库获取 ABL。若本地内置与云端均无该机型的 ABL，安装会直接中止，不会触碰 `abl` 分区。
+
 **刷入及使用流程：**
 在使用 Root 管理器（KernelSU/Magisk/APatch）刷入该压缩包时，脚本会通过音量键与您交互：
 - **按音量上键 (首次全新安装)：** 脚本会自动提取当前槽位的 `.abl`，对其打补丁，并把修补后的文件直接刷入 `/dev/block/by-name/efisp`。完成后，请重启手机进入 Recovery 模式**格式化 Data**。开机后，请再次刷入本模块（第二次刷入时按音量下键）以走完完整安装流程。
