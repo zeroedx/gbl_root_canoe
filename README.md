@@ -52,6 +52,8 @@ When flashing the Magisk module via a root manager (like KernelSU, Magisk, or AP
 - **Volume Up (First-time installation):** The script automatically extracts the live `.abl` image, patches it, and flashes the patched file directly to `/dev/block/by-name/efisp`. After this finishes, you must reboot into Recovery mode and **format Data**. Once booted, install this module again (selecting Volume Down the second time) to complete the installation.
 - **Volume Down (OTA retention or post-format):** Used for retaining the BL version after an OTA update. Before updating OTA, use the module to automatically downgrade ABL, then reboot the system.
 
+> **Note:** This module's ID is `zeroedx_fake_bl_efisp`. If you previously installed the module under its old ID, uninstall the old module manually in your root manager before installing this one, so that the old and new modules do not run at the same time and touch the same partitions or files. Magisk/KernelSU will not automatically upgrade a module with the old ID to this one.
+
 ### 2. Using the Windows Toolkit
 
 If you downloaded the `toolkit_windows.zip` file:
