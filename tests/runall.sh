@@ -15,4 +15,14 @@ if [ $? -ne 0 ]; then
     echo "Test 005_test_device_map.sh failed. Stopping further tests."
     exit 1
 fi
+./006_test_bl_flasher.sh
+if [ $? -ne 0 ]; then
+    echo "Test 006_test_bl_flasher.sh failed. Stopping further tests."
+    exit 1
+fi
+./007_test_customize_flow.sh
+if [ $? -ne 0 ]; then
+    echo "Test 007_test_customize_flow.sh failed. Stopping further tests."
+    exit 1
+fi
 echo "All tests passed successfully."
