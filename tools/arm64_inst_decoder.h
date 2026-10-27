@@ -57,13 +57,16 @@ static INT32 decode_imm19(UINT32 raw) {
     INT32 imm19 = (INT32)((raw >> 5) & 0x7FFFF);
     if (imm19 & 0x40000)
         imm19 |= (INT32)0xFFF80000; // sign extend bit 18 -> bit 31
-    return imm19 << 2;
+    /* Left shifting a negative signed value is undefined; shift the bit pattern. */
+    return (INT32)((UINT32)imm19 << 2);
 }
 static UINT32 read_instr(const CHAR8* buf, INT32 off) {
-    return (UINT8)buf[off]
-         | ((UINT8)buf[off+1] << 8)
-         | ((UINT8)buf[off+2] << 16)
-         | ((UINT8)buf[off+3] << 24);
+    /* Each byte is promoted to int before shifting, so shifting a byte >= 0x80
+       into the sign bit is undefined; assemble the word in UINT32 instead. */
+    return (UINT32)(UINT8)buf[off]
+         | ((UINT32)(UINT8)buf[off+1] << 8)
+         | ((UINT32)(UINT8)buf[off+2] << 16)
+         | ((UINT32)(UINT8)buf[off+3] << 24);
 }
 
 static void write_instr(CHAR8* buf, INT32 off, UINT32 val) {
@@ -212,7 +215,9 @@ static BOOLEAN decode_inst_adrp(UINT32 raw, DecodedInst* out) {
     UINT64 immhi = (raw >> 5)  & 0x7FFFF;
     INT64 imm = (INT64)((immhi << 2) | immlo);
     if (imm & (1LL << 20)) imm |= ~((1LL << 21) - 1);
-    out->simm = (INT32)(imm << 12);  /* page-granular signed offset */
+    /* The sign-extended immediate can be negative; shift the bit pattern so the
+       conversion to INT32 is implementation-defined at worst, never undefined. */
+    out->simm = (INT32)((UINT64)imm << 12);  /* page-granular signed offset */
     return TRUE;
 }
 

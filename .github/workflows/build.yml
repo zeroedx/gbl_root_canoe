@@ -33,6 +33,10 @@ jobs:
     - name: Run test
       run: make test
 
+    - name: Run patcher tests under sanitizers
+      run: |
+        SAN=address,undefined sh tests/009_test_patch_inputs.sh
+
     - name: Build Magisk Module
       run: |
         make clean
@@ -42,17 +46,58 @@ jobs:
       run: |
         set -eu
         test -f release/magisk_module.zip
+        # Exactly one package must land in release/.
+        count=$(find release -maxdepth 1 -type f -name '*.zip' | wc -l)
+        if [ "$count" -ne 1 ]; then
+          echo "expected exactly one zip in release/, found $count"
+          ls -l release
+          exit 1
+        fi
         # The packaged module.prop must match the shipped module metadata.
         unzip -p release/magisk_module.zip module.prop > /tmp/packed.prop
         diff -u magisk_module/module.prop /tmp/packed.prop
-        # The module must ship both helper binaries for arm64.
-        for b in bin/patch_abl bin/extractfv; do
-          unzip -l release/magisk_module.zip "$b" >/dev/null
+        # Every metadata field the module manager relies on must be present and valid.
+        field() { sed -n "s/^$1=//p" /tmp/packed.prop | head -n 1; }
+        for key in id name version versionCode author description; do
+          if [ -z "$(field "$key")" ]; then
+            echo "module.prop is missing $key"
+            exit 1
+          fi
+        done
+        id=$(field id)
+        echo "$id" | grep -Eq '^[a-zA-Z][a-zA-Z0-9._-]+$' || {
+          echo "module.prop has an id Magisk will reject: $id"
+          exit 1
+        }
+        version_code=$(field versionCode)
+        echo "$version_code" | grep -Eq '^[0-9]+$' || {
+          echo "module.prop versionCode must be numeric: $version_code"
+          exit 1
+        }
+        [ "$version_code" -gt 0 ] || {
+          echo "module.prop versionCode must be positive: $version_code"
+          exit 1
+        }
+        # The installer and both helper binaries for arm64 must be packaged.
+        for f in customize.sh uninstall.sh skip_mount bin/bl_flasher.sh bin/patch_abl bin/extractfv; do
+          unzip -l release/magisk_module.zip "$f" >/dev/null 2>&1 || {
+            echo "release/magisk_module.zip is missing $f"
+            exit 1
+          }
         done
         # The webroot assets the module manager loads must be present.
         for f in webroot/index.html webroot/app.js webroot/i18n.js webroot/style.css; do
-          unzip -l release/magisk_module.zip "$f" >/dev/null
+          unzip -l release/magisk_module.zip "$f" >/dev/null 2>&1 || {
+            echo "release/magisk_module.zip is missing $f"
+            exit 1
+          }
         done
+        # On-device runtime state and build logs must never be packaged.
+        if unzip -Z1 release/magisk_module.zip | grep -Eq '^(tmp/|.*\.log$)'; then
+          echo "release/magisk_module.zip contains runtime state or logs"
+          unzip -Z1 release/magisk_module.zip | grep -E '^(tmp/|.*\.log$)'
+          exit 1
+        fi
 
     - name: Upload Magisk Module
       uses: actions/upload-artifact@v4
