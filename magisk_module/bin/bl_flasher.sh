@@ -17,6 +17,7 @@ LOG_FILE="$RUNTIME_DIR/flash.log"
 STATE_FILE="$RUNTIME_DIR/state"
 MESSAGE_FILE="$RUNTIME_DIR/message"
 UPDATED_FILE="$RUNTIME_DIR/updated"
+TASK_FILE="$RUNTIME_DIR/task_id"
 PID_FILE="$RUNTIME_DIR/flash.pid"
 LOCK_DIR="$RUNTIME_DIR/flash.lock"
 
@@ -31,6 +32,7 @@ ensure_runtime() {
   [ -f "$STATE_FILE" ]   || printf '%s\n' 'idle' > "$STATE_FILE"
   [ -f "$MESSAGE_FILE" ] || printf '%s\n' '等待操作' > "$MESSAGE_FILE"
   [ -f "$UPDATED_FILE" ] || timestamp > "$UPDATED_FILE"
+  [ -f "$TASK_FILE" ] || printf '%s\n' '0' > "$TASK_FILE"
 }
 
 write_state() {
@@ -52,7 +54,7 @@ clean_workdir() {
   for _f in "$RUNTIME_DIR"/*; do
     [ -e "$_f" ] || continue
     case "${_f##*/}" in
-      flash.pid|state|message|updated|flash.log|flash.lock) ;;
+      flash.pid|state|message|updated|task_id|flash.log|flash.lock) ;;
       *) rm -rf "$_f" ;;
     esac
   done
@@ -179,15 +181,36 @@ print_status() {
     fi
   fi
 
-
   _state=''; [ -f "$STATE_FILE" ] && read -r _state < "$STATE_FILE"
   _msg=''; [ -f "$MESSAGE_FILE" ] && read -r _msg < "$MESSAGE_FILE"
   _upd=''; [ -f "$UPDATED_FILE" ] && read -r _upd < "$UPDATED_FILE"
+  _task=''; [ -f "$TASK_FILE" ] && read -r _task < "$TASK_FILE"
 
-  _out="CURRENT_SLOT=${current_slot}
+  # A "running" record with no live process means the run was interrupted (the
+  # page was closed, the device rebooted, ...). Report it as unknown instead of
+  # leaving a stale "running" that the WebUI would show forever.
+  stale='0'
+  if [ "$running" != '1' ]; then
+    case "$_state" in
+      running) stale='1' ;;
+    esac
+  fi
+
+  # module.prop is the single source of truth for the module metadata; the
+  # WebUI must never hardcode it.
+  _modname=$(sed -n 's/^name=//p' "$MODDIR/module.prop" 2>/dev/null | head -n 1)
+  _modver=$(sed -n 's/^version=//p' "$MODDIR/module.prop" 2>/dev/null | head -n 1)
+
+  _out="MODULE_NAME=${_modname}
+MODULE_VERSION=${_modver}
+CURRENT_SLOT=${current_slot}
 TARGET_SLOT=${target_slot}
 RUNNING=${running}
+STALE=${stale}
 PID=${pid}
+TASK_ID=${_task}
+DEVICE=$(getprop ro.product.name 2>/dev/null)
+MODEL=$(getprop ro.product.model 2>/dev/null)
 STATE=${_state}
 MESSAGE=${_msg}
 UPDATED_AT=${_upd}"
@@ -212,6 +235,7 @@ run_flash() {
     exit 1
   fi
   printf '%s\n' "$$" > "$PID_FILE"
+  printf '%s-%s\n' "$(date +%s)" "$$" > "$TASK_FILE"
   trap cleanup_lock EXIT INT TERM HUP
   : > "$LOG_FILE"
   clean_workdir

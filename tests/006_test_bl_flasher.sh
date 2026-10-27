@@ -43,6 +43,7 @@ export LOG_FILE="$RUNTIME_DIR/flash.log"
 export STATE_FILE="$RUNTIME_DIR/state"
 export MESSAGE_FILE="$RUNTIME_DIR/message"
 export UPDATED_FILE="$RUNTIME_DIR/updated"
+export TASK_FILE="$RUNTIME_DIR/task_id"
 export PID_FILE="$RUNTIME_DIR/flash.pid"
 export LOCK_DIR="$RUNTIME_DIR/flash.lock"
 export BY_NAME_DIR="/dev/block/by-name"
@@ -109,6 +110,70 @@ for f in patched.efi LinuxLoader.efi repo_abl.img; do
     pass "clean_workdir removed $f"
   fi
 done
+
+echo "--- print_status: reports RUNNING/STALE from the live process ---"
+# Reuse the helpers already extracted above and add the status functions
+# (they only read files and call getprop/kill).
+cp "$WORK/helpers.sh" "$WORK/statusfull.sh"
+grep '^emit() {' "$MODULE/bin/bl_flasher.sh" >> "$WORK/statusfull.sh"
+for fn in current_pid detect_current_slot other_slot print_status; do
+  sed -n "/^$fn() {/,/^}/p" "$MODULE/bin/bl_flasher.sh" >> "$WORK/statusfull.sh"
+done
+
+# A getprop stub that reports slot _a so a target slot can be derived.
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/getprop" <<'STUB'
+#!/bin/sh
+case "$1" in
+  ro.boot.slot_suffix) printf '%s\n' '_a' ;;
+  ro.product.name) printf '%s\n' 'myron' ;;
+  ro.product.model) printf '%s\n' 'Test' ;;
+  *) printf '%s\n' '' ;;
+esac
+STUB
+chmod +x "$WORK/bin/getprop"
+export PATH="$WORK/bin:$PATH"
+
+status_field() { # status_field <name>
+  printf '%s' "$1" | tr '\t' '\n' | sed -n "s/^$2=//p"
+}
+run_status() { sh -c '. "$1"; print_status' _ "$WORK/statusfull.sh"; }
+
+# idle: nothing running, no stale flag.
+printf '%s\n' 'idle' > "$RUNTIME_DIR/state"
+rm -f "$RUNTIME_DIR/flash.pid"
+out=$(run_status)
+[ "$(status_field "$out" RUNNING)" = "0" ] && [ "$(status_field "$out" STALE)" = "0" ] \
+  && pass "idle state reports RUNNING=0 STALE=0" \
+  || fail "idle state misreported ($out)"
+
+# interrupted: a "running" record with no live process must be flagged stale.
+printf '%s\n' 'running' > "$RUNTIME_DIR/state"
+printf '%s\n' '999999' > "$RUNTIME_DIR/flash.pid"
+out=$(run_status)
+[ "$(status_field "$out" RUNNING)" = "0" ] && [ "$(status_field "$out" STALE)" = "1" ] \
+  && pass "dead pid with running state reports STALE=1" \
+  || fail "stale run misreported ($out)"
+
+# live: a real running process must be reported as running, not stale.
+sleep 30 &
+live=$!
+printf '%s\n' "$live" > "$RUNTIME_DIR/flash.pid"
+out=$(run_status)
+[ "$(status_field "$out" RUNNING)" = "1" ] && [ "$(status_field "$out" STALE)" = "0" ] \
+  && pass "live pid reports RUNNING=1 STALE=0" \
+  || fail "live run misreported ($out)"
+kill "$live" 2>/dev/null
+
+# the device/module metadata must be present for the panel.
+printf '%s\n' 'id=zeroedx_fake_bl_efisp' 'name=假回锁' 'version=7.2' > "$MODULE/module.prop.statusbak"
+printf '%s\n' 'id=zeroedx_fake_bl_efisp' 'name=假回锁' 'version=7.2' > "$WORK/mod/module.prop"
+out=$(run_status)
+[ "$(status_field "$out" DEVICE)" = "myron" ] \
+  && [ "$(status_field "$out" MODULE_VERSION)" = "7.2" ] \
+  && pass "status exposes DEVICE and MODULE_VERSION" \
+  || fail "status missing device/module metadata ($out)"
+rm -f "$MODULE/module.prop.statusbak"
 
 if [ "$FAIL" -eq 0 ]; then
   echo "All tests passed successfully."

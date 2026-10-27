@@ -25,4 +25,9 @@ if [ $? -ne 0 ]; then
     echo "Test 007_test_customize_flow.sh failed. Stopping further tests."
     exit 1
 fi
+./008_test_webui.sh
+if [ $? -ne 0 ]; then
+    echo "Test 008_test_webui.sh failed. Stopping further tests."
+    exit 1
+fi
 echo "All tests passed successfully."

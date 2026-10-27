@@ -25,6 +25,11 @@ jobs:
           dash -n "$f"
         done
 
+    - name: Lint WebUI scripts
+      run: |
+        node --check magisk_module/webroot/i18n.js
+        node --check magisk_module/webroot/app.js
+
     - name: Run test
       run: make test
 
@@ -57,7 +62,7 @@ jobs:
           unzip -l release/magisk_module.zip "$b" >/dev/null
         done
         # The webroot assets the module manager loads must be present.
-        for f in webroot/index.html webroot/app.js webroot/style.css; do
+        for f in webroot/index.html webroot/app.js webroot/i18n.js webroot/style.css; do
           unzip -l release/magisk_module.zip "$f" >/dev/null
         done
         # The Windows toolkit must ship both executables.

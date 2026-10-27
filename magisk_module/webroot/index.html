@@ -1,122 +1,104 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>假回锁</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <div class="page-shell">
-      <header class="hero-card">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>假回锁</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="i18n.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      </div>
+      <div class="brand-text">
+        <p class="eyebrow" data-i18n="subtitle">BL Flasher</p>
+        <h1 id="appTitle" data-i18n="title">假回锁</h1>
+      </div>
+      <button id="langButton" class="quiet icon-button" type="button"
+              data-i18n-aria-label="language" data-i18n-title="language"
+              aria-label="切换语言" title="切换语言">
+        <span id="langLabel">EN</span>
+      </button>
+      <button id="refresh" class="quiet icon-button" type="button"
+              data-i18n-aria-label="refresh" data-i18n-title="refresh"
+              aria-label="刷新状态" title="刷新状态">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 8a7 7 0 0 1 11.6-2L20 9M4 15l2.3 3A7 7 0 0 0 18 16"/></svg>
+      </button>
+    </header>
+
+    <section class="status-card" aria-labelledby="status-title">
+      <div class="status-head">
         <div>
-          <p class="eyebrow">KernelSU Module WebUI</p>
-          <h1>BL Flasher</h1>
-          <p class="hero-copy">
-            自动识别当前活动槽位，如果新版本存在GBL漏洞，则跳过BL刷写，同时将BL相关镜像刷写到另一个槽位，并按需求自动修补新版ABL到efisp
-          </p>
+          <h2 id="status-title" data-i18n="statusHeading">模块状态</h2>
+          <p id="statusText" class="status-text" data-i18n="loading">正在读取模块状态…</p>
         </div>
-        <div class="hero-meta">
-          <span class="chip" id="stateChip">等待检测</span>
-          <span class="chip chip-warn" id="slotChip">槽位未知</span>
-        </div>
-      </header>
+        <span id="stateChip" class="chip" aria-live="polite">—</span>
+      </div>
+      <p id="updatedAt" class="status-meta"></p>
+    </section>
 
-      <main class="grid-layout">
-        <section class="panel stats-panel">
-          <div class="panel-heading">
-            <h2>槽位状态</h2>
-            <button class="ghost-button" id="refreshButton" type="button">刷新</button>
-          </div>
+    <div id="notice" class="notice" role="status" hidden></div>
 
-          <div class="stats-grid">
-            <article class="stat-card">
-              <span class="stat-label">当前槽位</span>
-              <strong class="stat-value" id="currentSlot">-</strong>
-            </article>
-            <article class="stat-card accent-card">
-              <span class="stat-label">目标槽位</span>
-              <strong class="stat-value" id="targetSlot">-</strong>
-            </article>
-            <article class="stat-card">
-              <span class="stat-label">镜像数量</span>
-              <strong class="stat-value" id="imageCount">0</strong>
-            </article>
-            <article class="stat-card">
-              <span class="stat-label">任务状态</span>
-              <strong class="stat-value stat-small" id="taskMessage">等待操作</strong>
-            </article>
-          </div>
+    <section class="info" aria-labelledby="device-title">
+      <h2 id="device-title" class="section-title" data-i18n="deviceHeading">设备信息</h2>
+      <dl class="info-grid">
+        <div><dt data-i18n="device">设备代号</dt><dd id="deviceName">-</dd></div>
+        <div><dt data-i18n="model">机型</dt><dd id="modelName">-</dd></div>
+        <div><dt data-i18n="currentSlot">当前槽位</dt><dd id="currentSlot">-</dd></div>
+        <div><dt data-i18n="targetSlot">目标槽位</dt><dd id="targetSlot">-</dd></div>
+        <div><dt data-i18n="version">模块版本</dt><dd id="moduleVersion">-</dd></div>
+      </dl>
+    </section>
 
-          <div class="action-strip">
-            <button class="primary-button" id="flashButton" type="button">刷写到另一槽位</button>
-            <button class="ghost-button" id="clearLogButton" type="button">清空日志</button>
-          </div>
-
-          <label class="option-check" for="updateEfispCheckbox">
-            <input id="updateEfispCheckbox" type="checkbox" />
-            <span>更新 efisp（默认关闭，仅勾选时执行）</span>
-          </label>
-
-        <label class="option-check" for="debugModeCheckbox">
-       <input id="debugModeCheckbox" type="checkbox" />
-            <span>调试模式（仅处理不刷写，生成的文件保存在 tmp 目录）</span>
+    <section class="actions" aria-labelledby="actions-title">
+      <h2 id="actions-title" class="section-title" data-i18n="actionsHeading">操作</h2>
+      <label class="option-check" for="updateEfispCheckbox">
+        <input id="updateEfispCheckbox" type="checkbox">
+        <span data-i18n="updateEfisp">同时更新 efisp（默认关闭）</span>
       </label>
+      <label class="option-check" for="debugModeCheckbox">
+        <input id="debugModeCheckbox" type="checkbox">
+        <span data-i18n="debugMode">调试模式（仅处理不刷写）</span>
+      </label>
+      <div class="action-row">
+        <button id="flashButton" class="primary" type="button" data-i18n="flash">刷写到另一槽位</button>
+        <button id="clearLogButton" class="quiet" type="button" data-i18n="clearLog">清空日志</button>
+      </div>
+      <p class="danger-note" data-i18n="dangerNote"></p>
+    </section>
 
-          <p class="warning-copy">
-         刷写对象是 bootloader 相关分区，风险较高。开始前请确认镜像与机型严格匹配。
-          </p>
-        </section>
+    <section class="log" aria-labelledby="log-title">
+      <div class="section-heading">
+        <h2 id="log-title" class="section-title" data-i18n="logHeading">执行日志</h2>
+        <span class="caption" data-i18n="logHint">自动读取最近 200 行</span>
+      </div>
+      <pre id="logOutput" data-i18n="logEmpty">暂无日志输出</pre>
+    </section>
 
-        <section class="panel map-panel">
-          <div class="panel-heading">
-            <h2>镜像映射</h2>
-            <span class="caption" id="updatedAt">尚未检测</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>分区名</th>
-                  <th>源分区 (当前槽位)</th>
-                  <th>目标分区</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody id="imageTableBody">
-              <tr>
-                <td colspan="4" class="empty-row">等待读取模块状态</td>
-              </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+    <section class="about" aria-labelledby="about-title">
+      <h2 id="about-title" class="section-title" data-i18n="aboutHeading">说明</h2>
+      <p data-i18n="aboutDevices"></p>
+      <p data-i18n="aboutPrereq"></p>
+      <p data-i18n="aboutSafety"></p>
+    </section>
 
-        <section class="panel log-panel">
-          <div class="panel-heading">
-            <h2>实时日志</h2>
-            <span class="caption">自动轮询最近 200 行</span>
-          </div>
-          <pre id="logOutput">等待日志输出...</pre>
-        </section>
+    <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+  </main>
 
-      </main>
-    </div>
-
-    <div class="modal-backdrop hidden" id="confirmModal" aria-hidden="true">
-      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
-        <p class="eyebrow">高风险操作</p>
-        <h2 id="confirmTitle">确认刷写</h2>
-        <p id="confirmText">
-          即将开始刷写，请确认操作对象和槽位。
-        </p>
-        <div class="modal-actions">
-          <button class="ghost-button" id="cancelConfirmButton" type="button">取消</button>
-          <button class="primary-button" id="nextConfirmButton" type="button">继续</button>
-        </div>
+  <div class="modal-backdrop hidden" id="confirmModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h2 id="confirmTitle" data-i18n="confirmTitle">确认刷写</h2>
+      <p id="confirmText"></p>
+      <div class="modal-actions">
+        <button class="quiet" id="cancelConfirmButton" type="button" data-i18n="cancel">取消</button>
+        <button class="primary" id="nextConfirmButton" type="button">继续</button>
       </div>
     </div>
-
-    <script src="app.js"></script>
-  </body>
+  </div>
+</body>
 </html>
