@@ -1,6 +1,6 @@
 id=zeroedx_fake_bl_efisp
 name=假回锁
-version=7.2
-versionCode=72
+version=7.3
+versionCode=73
 author=zeroedx
 description=保留假回锁升级系统
