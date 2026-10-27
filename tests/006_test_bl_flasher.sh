@@ -165,15 +165,14 @@ out=$(run_status)
   || fail "live run misreported ($out)"
 kill "$live" 2>/dev/null
 
-# the device/module metadata must be present for the panel.
-printf '%s\n' 'id=zeroedx_fake_bl_efisp' 'name=假回锁' 'version=7.2' > "$MODULE/module.prop.statusbak"
+# the device/module metadata must be present for the panel. module.prop is
+# written inside the throwaway $WORK tree, so the repository is never touched.
 printf '%s\n' 'id=zeroedx_fake_bl_efisp' 'name=假回锁' 'version=7.2' > "$WORK/mod/module.prop"
 out=$(run_status)
 [ "$(status_field "$out" DEVICE)" = "myron" ] \
   && [ "$(status_field "$out" MODULE_VERSION)" = "7.2" ] \
   && pass "status exposes DEVICE and MODULE_VERSION" \
   || fail "status missing device/module metadata ($out)"
-rm -f "$MODULE/module.prop.statusbak"
 
 if [ "$FAIL" -eq 0 ]; then
   echo "All tests passed successfully."

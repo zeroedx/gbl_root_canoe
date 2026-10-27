@@ -100,12 +100,46 @@ else
   pass "module metadata is read from the script, not hardcoded"
 fi
 
-echo "--- module.prop matches the module id/name used elsewhere ---"
-prop_id=$(sed -n 's/^id=//p' "$MODULEPROP")
-if [ -n "$prop_id" ] && grep -q "$prop_id" "$SCRIPT" 2>/dev/null || [ -n "$prop_id" ]; then
-  pass "module.prop declares id=$prop_id"
+echo "--- module.prop declares a valid, documented module id ---"
+# The module id lives in module.prop and is the single source of truth: the
+# scripts read name/version from it rather than hardcoding any value. This
+# section verifies that invariant instead of comparing against a string that
+# no script contains.
+prop_id=$(sed -n 's/^id=//p' "$MODULEPROP" | head -n 1)
+valid=0
+if [ -n "$prop_id" ]; then
+  case "$prop_id" in
+    [a-z0-9]*)
+      case "$prop_id" in
+        *[!a-z0-9_]*) ;;
+        *) valid=1 ;;
+      esac ;;
+  esac
+fi
+if [ "$valid" = "1" ]; then
+  pass "module.prop declares a valid id=$prop_id"
 else
-  fail "module.prop has no id"
+  fail "module.prop has no valid module id (got '$prop_id')"
+fi
+
+if [ "$valid" = "1" ]; then
+  # A script or the panel that hardcoded the id would silently override
+  # module.prop, so the metadata would no longer be authoritative.
+  if grep -rn "$prop_id" "$SCRIPT" "$WEBROOT" >/dev/null 2>&1; then
+    fail "module id '$prop_id' is hardcoded in a script or the panel"
+  else
+    pass "the module id is not hardcoded in the script or the panel"
+  fi
+
+  # The id must match what the READMEs document, so an id rename cannot ship
+  # with stale documentation.
+  for readme in ../README.md ../README_zh.md; do
+    if [ -f "$readme" ] && grep -q "$prop_id" "$readme"; then
+      pass "$(basename "$readme") documents id=$prop_id"
+    else
+      fail "$(basename "$readme") does not document id=$prop_id"
+    fi
+  done
 fi
 
 if [ "$FAIL" -eq 0 ]; then
