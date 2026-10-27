@@ -15,18 +15,6 @@ patch: clean
 	rm tools/patch_abl
 	cat ./dist/patch_log.txt
 
-# Windows toolkit: extractfv.exe + patch_abl.exe, cross-compiled with MinGW-w64.
-dist_loader_windows:
-	rm -rf ./dist
-	mkdir -p ./dist/images
-	mkdir -p ./dist/bin
-	touch ./dist/images/PUT_ABL_IMAGE_HERE
-	mkdir -p release
-	bash ./tools/build_extractfv_windows.sh
-	x86_64-w64-mingw32-gcc -O2 -o ./dist/bin/patch_abl.exe ./tools/patch_abl.c
-	cp ./tools/build.bat ./dist
-	cd ./dist && zip -r ../release/$(DIST_NAME)_windows.zip ./
-
 # Android-native patcher binaries used by the Magisk module.
 build_patcher_android:
 	rm -rf ./dist
