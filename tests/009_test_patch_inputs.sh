@@ -15,6 +15,9 @@ cd "$(dirname "$0")" || exit 1
 SRC=../tools/patch_abl.c
 EXTRACT_SRC=../tools/extractfv.c
 GOLDEN_MD5=278654de4d7ab660866f2050c8851ee8
+# Same image with the "unlocked"/"locked" pair the ADRL pass needs removed: every
+# other patch still applies, so this is the expected partial result.
+GOLDEN_NOADRL_MD5=77ee97bcec65ddc06c682fe3051537e5
 
 PASS=0
 FAIL=0
@@ -33,9 +36,9 @@ no_diagnostics() {
 }
 
 run_case() {
-  # $1 = binary, $2 = input, $3 = output, $4 = stderr file, $5 = rc file
+  # $1 = binary, $2 = input, $3 = output, $4 = log file, $5 = rc file
   rm -f "$3"
-  "$1" "$2" "$3" > /dev/null 2> "$4"
+  "$1" "$2" "$3" > "$4" 2>&1
   echo "$?" > "$5"
 }
 
@@ -98,7 +101,7 @@ check_build() {
   fi
 
   # --- normal image: must be byte-identical to the reference output
-  run_case "$bin" "$TMP/normal.efi" "$TMP/out_normal.efi" "$TMP/normal.err" "$TMP/normal.rc"
+  run_case "$bin" "$TMP/normal.efi" "$TMP/out_normal.efi" "$TMP/normal.log" "$TMP/normal.rc"
   rc=$(cat "$TMP/normal.rc")
   if [ "$rc" -eq 0 ]; then
     pass "$label: the supported image patches successfully"
@@ -115,14 +118,24 @@ check_build() {
   else
     fail "$label: the patched image changed (expected $GOLDEN_MD5, got $(md5sum "$TMP/out_normal.efi" 2>/dev/null | cut -d' ' -f1))"
   fi
-  if no_diagnostics "$TMP/normal.err"; then
+  if grep -q "ADRL triple not found" "$TMP/normal.log"; then
+    fail "$label: the supported image reports a missing ADRL triple"
+  else
+    pass "$label: the supported image patches the ADRL triple"
+  fi
+  if no_diagnostics "$TMP/normal.log"; then
     pass "$label: the supported image produces no sanitizer diagnostics"
   else
     fail "$label: the supported image produced sanitizer diagnostics"
   fi
 
-  # --- unsupported variant: the ADRL pass is skipped, the run still succeeds
-  run_case "$bin" "$TMP/noadrl.efi" "$TMP/out_noadrl.efi" "$TMP/noadrl.err" "$TMP/noadrl.rc"
+  # --- ADRL-less variant: the "unlocked"->"locked" patch cannot be applied.
+  # The remaining patches do not depend on it, so the tool keeps exit 0 and
+  # writes a partially patched image; that is the upstream contract (a patch
+  # that does not apply is a warning, not an error). The assertions pin that
+  # outcome exactly -- status, size, partial-result checksum and the log line
+  # the installer and the flasher show the user -- so it cannot drift silently.
+  run_case "$bin" "$TMP/noadrl.efi" "$TMP/out_noadrl.efi" "$TMP/noadrl.log" "$TMP/noadrl.rc"
   rc=$(cat "$TMP/noadrl.rc")
   if [ "$rc" -lt 128 ]; then
     pass "$label: an image without the ADRL marker does not crash"
@@ -130,24 +143,57 @@ check_build() {
     fail "$label: an image without the ADRL marker died from signal $((rc - 128))"
   fi
   if [ "$rc" -eq 0 ]; then
-    pass "$label: an image without the ADRL marker is patched anyway"
+    pass "$label: an image without the ADRL marker completes with exit 0"
   else
-    fail "$label: an image without the ADRL marker failed with $rc"
+    fail "$label: an image without the ADRL marker exited with $rc"
   fi
   if [ -f "$TMP/out_noadrl.efi" ] && [ "$(stat -c%s "$TMP/out_noadrl.efi")" = "$(stat -c%s "$TMP/noadrl.efi")" ]; then
-    pass "$label: the unsupported variant keeps the input size"
+    pass "$label: the ADRL-less image keeps the input size"
   else
-    fail "$label: the unsupported variant produced a missing or truncated output"
+    fail "$label: the ADRL-less image produced a missing or truncated output"
+  fi
+  if [ "$(md5sum "$TMP/out_noadrl.efi" 2>/dev/null | cut -d' ' -f1)" = "$GOLDEN_NOADRL_MD5" ]; then
+    pass "$label: the ADRL-less image gets every patch except the ADRL one"
+  else
+    fail "$label: the ADRL-less output changed (expected $GOLDEN_NOADRL_MD5, got $(md5sum "$TMP/out_noadrl.efi" 2>/dev/null | cut -d' ' -f1))"
   fi
   if cmp -s "$TMP/out_noadrl.efi" "$TMP/out_normal.efi"; then
     fail "$label: skipping the ADRL pass did not change the output"
   else
     pass "$label: skipping the ADRL pass changes the output as expected"
   fi
-  if no_diagnostics "$TMP/noadrl.err"; then
-    pass "$label: the unsupported variant produces no sanitizer diagnostics"
+  if grep -q "ADRL triple not found, skipping the unlocked->locked patch" "$TMP/noadrl.log"; then
+    pass "$label: the log names the patch that was skipped"
   else
-    fail "$label: the unsupported variant produced sanitizer diagnostics"
+    fail "$label: the log does not say which patch was skipped"
+  fi
+  if grep -q "Error: ADRL verification failed" "$TMP/noadrl.log"; then
+    fail "$label: a run that succeeded still reports an ADRL verification error"
+  else
+    pass "$label: a skipped ADRL patch reports no verification error"
+  fi
+  if no_diagnostics "$TMP/noadrl.log"; then
+    pass "$label: the ADRL-less variant produces no sanitizer diagnostics"
+  else
+    fail "$label: the ADRL-less variant produced sanitizer diagnostics"
+  fi
+
+  # --- a failed run must not leave anything at the output path that a caller
+  # could mistake for the result of this run. The shipped callers delete the
+  # file first, and the patcher itself never truncates one it did not produce.
+  printf 'output from an earlier run' > "$TMP/stale.efi"
+  stale_md5=$(md5sum "$TMP/stale.efi" | cut -d' ' -f1)
+  "$bin" "$TMP/empty.bin" "$TMP/stale.efi" > "$TMP/stale.log" 2>&1
+  echo "$?" > "$TMP/stale.rc"
+  rc=$(cat "$TMP/stale.rc")
+  if [ "$rc" -ne 0 ]; then
+    if [ ! -e "$TMP/stale.efi" ] || [ "$(md5sum "$TMP/stale.efi" 2>/dev/null | cut -d' ' -f1)" = "$stale_md5" ]; then
+      pass "$label: a failed run never leaves a partial output file"
+    else
+      fail "$label: a failed run truncated the previous output file"
+    fi
+  else
+    fail "$label: an empty input was accepted over a stale output file"
   fi
 
   # --- inputs that must be rejected without crashing
@@ -157,7 +203,7 @@ check_build() {
       trunc)  input="$TMP/trunc.efi" ;;
       random) input="$TMP/random.bin" ;;
     esac
-    run_case "$bin" "$input" "$TMP/out_$case.efi" "$TMP/$case.err" "$TMP/$case.rc"
+    run_case "$bin" "$input" "$TMP/out_$case.efi" "$TMP/$case.log" "$TMP/$case.rc"
     rc=$(cat "$TMP/$case.rc")
     if [ "$rc" -lt 128 ]; then
       pass "$label: $case input does not crash"
@@ -174,7 +220,7 @@ check_build() {
     else
       fail "$label: $case input produced an output file"
     fi
-    if no_diagnostics "$TMP/$case.err"; then
+    if no_diagnostics "$TMP/$case.log"; then
       pass "$label: $case input produces no sanitizer diagnostics"
     else
       fail "$label: $case input produced sanitizer diagnostics"

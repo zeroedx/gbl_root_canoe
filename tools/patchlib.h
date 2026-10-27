@@ -598,7 +598,11 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
     #ifndef DISABLE_PATCH_2
     INT32 patched_adrl = patch_adrl_unlocked_to_locked(data, size, 0);
     if (patched_adrl == 0){
-        Print_patcher("Warning: ADRL triple not found, skipping\n");
+        /* Not fatal: the patches below are independent of this one and still
+           apply, so the image that gets produced is useful without it. The
+           message has to say which patch was skipped, because the result is
+           then a partial patch of the input, not the full patch set. */
+        Print_patcher("Warning: ADRL triple not found, skipping the unlocked->locked patch\n");
         //return FALSE; not critical, continue with other patches
     }
 
@@ -607,7 +611,9 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
         return FALSE; //cr
     }
 
-    if (patch_adrl_unlocked_to_locked_verify(data, size, 0) == 0){
+    /* Only meaningful when the patch above actually ran: verifying a triple the
+       image does not contain used to report an error on a run that succeeded. */
+    if (patched_adrl != 0 && patch_adrl_unlocked_to_locked_verify(data, size, 0) == 0){
         Print_patcher("Error: ADRL verification failed\n");
         //return FALSE;
     }
