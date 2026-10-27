@@ -12,30 +12,47 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y lld clang llvm uuid-dev liblzma-dev mingw-w64 zip
+        sudo apt-get install -y lld clang llvm uuid-dev liblzma-dev zip shellcheck
 
     - name: Setup Variables
       run: |
         echo "NDK_PATH=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
 
+    - name: Lint module shell scripts
+      run: |
+        shellcheck -s sh magisk_module/customize.sh magisk_module/uninstall.sh magisk_module/bin/*.sh
+        for f in magisk_module/customize.sh magisk_module/uninstall.sh magisk_module/bin/*.sh; do
+          dash -n "$f"
+        done
+
+    - name: Lint WebUI scripts
+      run: |
+        node --check magisk_module/webroot/i18n.js
+        node --check magisk_module/webroot/app.js
+
     - name: Run test
       run: make test
-
-    - name: Build Windows Toolkit
-      run: |
-        make clean
-        DIST_NAME=toolkit make dist_loader_windows
 
     - name: Build Magisk Module
       run: |
         make clean
         DIST_NAME=magisk_module make build_module
 
-    - name: Upload Windows Toolkit
-      uses: actions/upload-artifact@v4
-      with:
-        name: toolkit_windows
-        path: release/toolkit_windows.zip
+    - name: Verify build artifacts
+      run: |
+        set -eu
+        test -f release/magisk_module.zip
+        # The packaged module.prop must match the shipped module metadata.
+        unzip -p release/magisk_module.zip module.prop > /tmp/packed.prop
+        diff -u magisk_module/module.prop /tmp/packed.prop
+        # The module must ship both helper binaries for arm64.
+        for b in bin/patch_abl bin/extractfv; do
+          unzip -l release/magisk_module.zip "$b" >/dev/null
+        done
+        # The webroot assets the module manager loads must be present.
+        for f in webroot/index.html webroot/app.js webroot/i18n.js webroot/style.css; do
+          unzip -l release/magisk_module.zip "$f" >/dev/null
+        done
 
     - name: Upload Magisk Module
       uses: actions/upload-artifact@v4

@@ -20,6 +20,14 @@ detect_current_slot() {
     *)  return 1 ;;
   esac
 }
+
+# Read the currently held volume key once. Prints "up"/"down" or nothing.
+read_volume_key() {
+  case "$(timeout 0.5 getevent -l 2>/dev/null)" in
+    *KEY_VOLUMEUP*)   printf '%s\n' 'up' ;;
+    *KEY_VOLUMEDOWN*) printf '%s\n' 'down' ;;
+  esac
+}
 BY_NAME_DIR="/dev/block/by-name"
 RUNTIME_DIR="$MODPATH/tmp"
 mkdir -p "$RUNTIME_DIR"
@@ -91,6 +99,8 @@ fetch_abl_from_repo() {
     fi
     ui_print "云端 ABL 校验失败"
   fi
+  # Never leave a partial or failed download behind for the caller to flash.
+  rm -f "$RUNTIME_DIR/repo_abl.img" "$RUNTIME_DIR/repo_abl.sha256"
   return 1
 }
 
@@ -105,17 +115,30 @@ ui_print "音量下为否（如果之前安装过一次假回锁或者刚刚首�
 ui_print "如果选择是，将会安装包含补丁的efisp 然后重启recovery 进行格式化，格式化后请安装一次这个模块来完成安装，这时选择否"
 ui_print "如果选择否，将会安装OTA更新补丁，每次OTA更新后都需要打开这个模块来安装补丁，来保留BL版本，安装完成后重启系统即可"
 while true; do #循环等待用户按键选择，音量上为是，音量下为否
-  keyevent=$(timeout 0.5 getevent -l 2>/dev/null)
-  if echo "$keyevent" | grep -q "KEY_VOLUMEUP"; then
+  case "$(read_volume_key)" in
+  up)
     ui_print "选择了是，正在安装包含补丁的efisp"
     if [ -z "$current_slot" ]; then
       ui_print "无法识别当前槽位，已中止安装"
       abort "cannot detect current slot"
     fi
     abl_part=$(partition_path abl "$current_slot")
-    $MODPATH/bin/extractfv -o "$MODPATH/tmp" -v "$abl_part" >> "$MODPATH/tmp/extract.log" 2>&1
-    $MODPATH/bin/patch_abl "$MODPATH/tmp/LinuxLoader.efi" "$MODPATH/tmp/patched.efi" >> "$MODPATH/tmp/patch.log" 2>&1
-    if [ ! -f "$MODPATH/tmp/patched.efi" ]; then
+    # Drop any stale outputs first so a failed run cannot leave an old
+    # patched.efi behind for the flash step to pick up.
+    rm -f "$MODPATH/tmp/LinuxLoader.efi" "$MODPATH/tmp/patched.efi"
+    if ! "$MODPATH/bin/extractfv" -o "$MODPATH/tmp" -v "$abl_part" >> "$MODPATH/tmp/extract.log" 2>&1; then
+      ui_print "ABL 提取失败，已中止安装"
+      abort "extract failed"
+    fi
+    if [ ! -s "$MODPATH/tmp/LinuxLoader.efi" ]; then
+      ui_print "ABL 提取结果为空，已中止安装"
+      abort "extract produced no output"
+    fi
+    if ! "$MODPATH/bin/patch_abl" "$MODPATH/tmp/LinuxLoader.efi" "$MODPATH/tmp/patched.efi" >> "$MODPATH/tmp/patch.log" 2>&1; then
+      ui_print "补丁应用失败，已中止安装"
+      abort "patch failed"
+    fi
+    if [ ! -s "$MODPATH/tmp/patched.efi" ]; then
       ui_print "补丁应用失败，已中止安装"
       abort "patch failed"
     fi
@@ -126,12 +149,10 @@ while true; do #循环等待用户按键选择，音量上为是，音量下为�
       ui_print "音量下 = 取消"
       repo_confirm=""
       while [ -z "$repo_confirm" ]; do
-        keyevent=$(timeout 0.5 getevent -l 2>/dev/null)
-        if echo "$keyevent" | grep -q "KEY_VOLUMEUP"; then
-          repo_confirm=yes
-        elif echo "$keyevent" | grep -q "KEY_VOLUMEDOWN"; then
-          repo_confirm=no
-        fi
+        case "$(read_volume_key)" in
+          up)   repo_confirm=yes ;;
+          down) repo_confirm=no ;;
+        esac
       done
       if [ "$repo_confirm" = "no" ]; then
         ui_print "已取消降级，中止安装"
@@ -165,10 +186,12 @@ while true; do #循环等待用户按键选择，音量上为是，音量下为�
     ui_print "安装完成，请重启到recovery进行格式化，格式化后请安装一次这个模块来完成安装，这时选择否"
     rm -rf "$RUNTIME_DIR"
     break
-  elif echo "$keyevent" | grep -q "KEY_VOLUMEDOWN"; then
+    ;;
+  down)
     ui_print "选择了否，正在安装OTA更新模块"
     ui_print "安装完成，请重启系统即可"
     rm -rf "$RUNTIME_DIR"
     break
-  fi
+    ;;
+  esac
 done

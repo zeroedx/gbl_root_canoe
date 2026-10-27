@@ -1,6 +1,9 @@
 #!/system/bin/sh
 # 系统更新后 保留bl版本
 if [ -z "$MODDIR" ]; then
+  # CDPATH= deliberately clears any inherited CDPATH for this cd; ShellCheck
+  # SC1007 misreads the empty assignment as a stray space.
+  # shellcheck disable=SC1007
   MODDIR=$(CDPATH= cd -- "$(dirname "$0")/.." 2>/dev/null && pwd)
 fi
 if [ -z "$MODDIR" ]; then
@@ -14,13 +17,13 @@ LOG_FILE="$RUNTIME_DIR/flash.log"
 STATE_FILE="$RUNTIME_DIR/state"
 MESSAGE_FILE="$RUNTIME_DIR/message"
 UPDATED_FILE="$RUNTIME_DIR/updated"
+TASK_FILE="$RUNTIME_DIR/task_id"
 PID_FILE="$RUNTIME_DIR/flash.pid"
 LOCK_DIR="$RUNTIME_DIR/flash.lock"
 
-export PATH=/data/adb/ksu/bin:/system/bin:/system/xbin:$PATH
+export PATH="/data/adb/ksu/bin:/system/bin:/system/xbin:$PATH"
 
 timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
-read_line() { [ -f "$1" ] && head -n 1 "$1"; }
 emit() { printf '%s' "$1" | tr '\n' '\t'; }
 
 ensure_runtime() {
@@ -29,6 +32,7 @@ ensure_runtime() {
   [ -f "$STATE_FILE" ]   || printf '%s\n' 'idle' > "$STATE_FILE"
   [ -f "$MESSAGE_FILE" ] || printf '%s\n' '等待操作' > "$MESSAGE_FILE"
   [ -f "$UPDATED_FILE" ] || timestamp > "$UPDATED_FILE"
+  [ -f "$TASK_FILE" ] || printf '%s\n' '0' > "$TASK_FILE"
 }
 
 write_state() {
@@ -41,6 +45,19 @@ write_state() {
 write_log() {
   ensure_runtime
   printf '[%s] %s\n' "$(timestamp)" "$*" >> "$LOG_FILE"
+}
+
+# Remove leftovers from a previous run (patched.efi, LinuxLoader.efi, non-flash
+# logs, ...) while keeping the state, log and lock files the WebUI reads, so a
+# stale artifact can never be mistaken for the current run's output.
+clean_workdir() {
+  for _f in "$RUNTIME_DIR"/*; do
+    [ -e "$_f" ] || continue
+    case "${_f##*/}" in
+      flash.pid|state|message|updated|task_id|flash.log|flash.lock) ;;
+      *) rm -rf "$_f" ;;
+    esac
+  done
 }
 
 detect_current_slot() {
@@ -71,22 +88,39 @@ current_pid() {
   fi
   return 1
 }
+# Extract $1 (an ABL partition) and apply the efisp patch, leaving the result in
+# $RUNTIME_DIR/patched.efi and the tool output in $RUNTIME_DIR/patch.log. Stale
+# outputs are removed first so a failed run cannot be mistaken for a success.
+# Returns 0 only when a non-empty patched.efi was produced, otherwise 1.
+build_patched_efi() {
+  rm -f "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" "$RUNTIME_DIR/patch.log"
+  if ! "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$1" >> "$LOG_FILE" 2>&1; then
+    write_log 'ABL 提取失败'
+    return 1
+  fi
+  if [ ! -s "$RUNTIME_DIR/LinuxLoader.efi" ]; then
+    write_log 'ABL 提取失败：未生成 LinuxLoader.efi'
+    return 1
+  fi
+  if ! "$MODDIR/bin/patch_abl" "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" >> "$RUNTIME_DIR/patch.log" 2>&1; then
+    cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
+    write_log '补丁应用失败'
+    return 1
+  fi
+  cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
+  if [ ! -s "$RUNTIME_DIR/patched.efi" ]; then
+    write_log '补丁应用失败'
+    return 1
+  fi
+  return 0
+}
+
 # extractfv and patch_abl from abl_dest
 # 0 success, 1 failed 2 new ABL version with GBL vulnerability detected, skipping BL flash to preserve BL version
 # $1: abl partition path, $2: debug_mode (optional, "debug" to skip flash)
 patch_efisp() {
   debug_mode="${2:-no-debug}"
-  rm "$RUNTIME_DIR/patched.efi" 2>/dev/null || true
-  rm "$RUNTIME_DIR/patch.log" 2>/dev/null || true
-  rm "$RUNTIME_DIR/LinuxLoader.efi" 2>/dev/null || true
-  $MODDIR/bin/extractfv -o "$RUNTIME_DIR" -v "$1" >> "$LOG_FILE" 2>&1
-  #patch abl
-  $MODDIR/bin/patch_abl "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" >> "$RUNTIME_DIR/patch.log" 2>&1
-  cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
-  if [ ! -f "$RUNTIME_DIR/patched.efi" ]; then
-    write_log '补丁应用失败'
-    return 1
-  fi
+  build_patched_efi "$1" || return 1
 
   # Skip flash in debug mode
   if [ "$debug_mode" = "debug" ]; then
@@ -116,13 +150,7 @@ patch_efisp() {
 # detect ABL GBL vulnerability without flashing efisp
 # 0 vulnerable (should skip BL flash), 1 detect failed, 2 not vulnerable
 detect_gbl_vulnerability() {
-  rm "$RUNTIME_DIR/patched.efi" 2>/dev/null || true
-  rm "$RUNTIME_DIR/patch.log" 2>/dev/null || true
-  rm "$RUNTIME_DIR/LinuxLoader.efi" 2>/dev/null || true
-  $MODDIR/bin/extractfv -o "$RUNTIME_DIR" -v "$1" >> "$LOG_FILE" 2>&1
-  $MODDIR/bin/patch_abl "$RUNTIME_DIR/LinuxLoader.efi" "$RUNTIME_DIR/patched.efi" >> "$RUNTIME_DIR/patch.log" 2>&1
-  cat "$RUNTIME_DIR/patch.log" >> "$LOG_FILE"
-  if [ ! -f "$RUNTIME_DIR/patched.efi" ]; then
+  if ! build_patched_efi "$1"; then
     write_log '漏洞检测失败：补丁文件未生成'
     return 1
   fi
@@ -153,15 +181,36 @@ print_status() {
     fi
   fi
 
-
   _state=''; [ -f "$STATE_FILE" ] && read -r _state < "$STATE_FILE"
   _msg=''; [ -f "$MESSAGE_FILE" ] && read -r _msg < "$MESSAGE_FILE"
   _upd=''; [ -f "$UPDATED_FILE" ] && read -r _upd < "$UPDATED_FILE"
+  _task=''; [ -f "$TASK_FILE" ] && read -r _task < "$TASK_FILE"
 
-  _out="CURRENT_SLOT=${current_slot}
+  # A "running" record with no live process means the run was interrupted (the
+  # page was closed, the device rebooted, ...). Report it as unknown instead of
+  # leaving a stale "running" that the WebUI would show forever.
+  stale='0'
+  if [ "$running" != '1' ]; then
+    case "$_state" in
+      running) stale='1' ;;
+    esac
+  fi
+
+  # module.prop is the single source of truth for the module metadata; the
+  # WebUI must never hardcode it.
+  _modname=$(sed -n 's/^name=//p' "$MODDIR/module.prop" 2>/dev/null | head -n 1)
+  _modver=$(sed -n 's/^version=//p' "$MODDIR/module.prop" 2>/dev/null | head -n 1)
+
+  _out="MODULE_NAME=${_modname}
+MODULE_VERSION=${_modver}
+CURRENT_SLOT=${current_slot}
 TARGET_SLOT=${target_slot}
 RUNNING=${running}
+STALE=${stale}
 PID=${pid}
+TASK_ID=${_task}
+DEVICE=$(getprop ro.product.name 2>/dev/null)
+MODEL=$(getprop ro.product.model 2>/dev/null)
 STATE=${_state}
 MESSAGE=${_msg}
 UPDATED_AT=${_upd}"
@@ -186,8 +235,10 @@ run_flash() {
     exit 1
   fi
   printf '%s\n' "$$" > "$PID_FILE"
+  printf '%s-%s\n' "$(date +%s)" "$$" > "$TASK_FILE"
   trap cleanup_lock EXIT INT TERM HUP
   : > "$LOG_FILE"
+  clean_workdir
 
   current_slot=$(detect_current_slot 2>/dev/null || true)
   if [ -z "$current_slot" ]; then
@@ -218,7 +269,7 @@ run_flash() {
     else
       write_log '调试模式下未勾选 efisp 更新，仅提取 ABL'
       rm "$RUNTIME_DIR/LinuxLoader.efi" 2>/dev/null || true
-      $MODDIR/bin/extractfv -o "$RUNTIME_DIR" -v "$abl_part" >> "$LOG_FILE" 2>&1
+      "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$abl_part" >> "$LOG_FILE" 2>&1
       if [ -f "$RUNTIME_DIR/LinuxLoader.efi" ]; then
         write_state 'success' "调试完成，ABL 已提取到 $RUNTIME_DIR/LinuxLoader.efi"
         write_log "调试完成，提取的 ABL：$RUNTIME_DIR/LinuxLoader.efi"
