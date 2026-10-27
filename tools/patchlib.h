@@ -578,7 +578,19 @@ BOOLEAN patch_string_jump(CHAR8* buffer, INT32 size) {
     return patched;
 }
 
+/* Applies every enabled patch to the caller's buffer, in place.
+ *
+ * Ownership: the buffer is allocated by the caller (read_file in types.h) and is
+ * released exactly once by the caller, on both the success and the failure path.
+ * This function must therefore never free it: releasing it on a "patch does not
+ * apply" branch handed the caller a dangling pointer that it then kept writing
+ * through and freeing again. A patch that cannot be applied is a warning, not a
+ * reason to give up ownership. */
 BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
+    if (data == NULL || size <= 0) {
+        Print_patcher("Error: empty or missing input\n");
+        return FALSE;
+    }
     #ifndef DISABLE_PATCH_1
     if (patch_abl_gbl(data, size) != 0)
         Print_patcher("Warning: Failed to patch ABL GBL\n");
@@ -587,7 +599,6 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
     INT32 patched_adrl = patch_adrl_unlocked_to_locked(data, size, 0);
     if (patched_adrl == 0){
         Print_patcher("Warning: ADRL triple not found, skipping\n");
-        free(data);
         //return FALSE; not critical, continue with other patches
     }
 
@@ -598,7 +609,6 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
 
     if (patch_adrl_unlocked_to_locked_verify(data, size, 0) == 0){
         Print_patcher("Error: ADRL verification failed\n");
-        free(data);
         //return FALSE;
     }
     #endif
@@ -611,7 +621,6 @@ BOOLEAN PatchBuffer(CHAR8* data, INT32 size) {
     INT32 num_patches = patch_abl_bootstate(data, size, &lock_register_num, &offset);
     if (num_patches == 0) {
         Print_patcher("Error: Failed to find/patch ABL Boot State\n");
-        free(data);
         return 0;
     }
     Print_patcher("Anchor offset : 0x%X\n", offset);

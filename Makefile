@@ -1,3 +1,6 @@
+# Artifact base name. An empty value would silently produce "release/.zip".
+DIST_NAME := $(if $(strip $(DIST_NAME)),$(strip $(DIST_NAME)),magisk_module)
+
 clean:
 	rm -f tools/patch_abl || true
 	rm -rf dist || true
