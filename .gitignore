@@ -36,3 +36,13 @@ dist/
 .vscode/
 
 edk2/build_modulepkg.log
+
+# Patcher binaries built into the module tree and on-device runtime state
+magisk_module/bin/patch_abl
+magisk_module/bin/extractfv
+magisk_module/tmp/
+
+# Test leftovers
+tests/patch_abl
+tests/patch_output/
+tests/extracted/

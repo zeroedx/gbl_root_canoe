@@ -89,7 +89,7 @@ fi
 # ══════════════════════════════════════
 # Step 3: 编译 extractfv
 # ══════════════════════════════════════
-echo "[3/3] Compiling extractfv for arm64-v8a..."
+echo "[3/4] Compiling extractfv for arm64-v8a..."
 
 mkdir -p "$OUT_DIR"
 
@@ -102,6 +102,89 @@ $CC -O2 -std=c11 \
     -L"${LZMA_INSTALL}/lib" \
     -llzma \
     -static
+
+# ══════════════════════════════════════
+# Step 4: 移除不参与装载的 DWARF
+# ══════════════════════════════════════
+# NDK 的静态 libc.a 自带大量调试信息，链接后约占九成体积，而它永远不参与装载。
+# 只删 .debug_*，保留 .symtab。
+echo "[4/4] Stripping DWARF from extractfv..."
+
+STRIP="${TOOLCHAIN}/bin/llvm-strip"
+if [ ! -x "$STRIP" ]; then
+    echo "Error: llvm-strip not found: $STRIP"
+    exit 1
+fi
+
+if [ -x "${TOOLCHAIN}/bin/llvm-readelf" ]; then
+    READELF="${TOOLCHAIN}/bin/llvm-readelf"
+elif command -v llvm-readelf > /dev/null 2>&1; then
+    READELF=$(command -v llvm-readelf)
+else
+    echo "Error: llvm-readelf is required to verify the stripped binary"
+    exit 1
+fi
+if ! command -v cmp > /dev/null 2>&1; then
+    echo "Error: cmp is required to compare the PT_LOAD segments"
+    exit 1
+fi
+
+UNSTRIPPED="${OUT_DIR}/extractfv_android.unstripped"
+cp "${OUT_DIR}/extractfv_android" "$UNSTRIPPED"
+
+"$STRIP" --strip-debug "${OUT_DIR}/extractfv_android" || {
+    echo "Error: llvm-strip failed, refusing to package the unstripped binary"
+    exit 1
+}
+
+# strip 只能动不装载的内容：
+#   - ELF 头（除 section 表指针外）必须一致
+#   - PT_LOAD 的数量、偏移、地址、大小、权限必须一致
+#   - 每个 PT_LOAD 段内的字节必须一致
+elf_header() {
+    "$READELF" -h "$1" |
+        grep -vE "Start of section headers|Number of section headers|Section header string table index"
+}
+loads() { "$READELF" -l -W "$1" | awk '$1 == "LOAD"'; }
+
+if [ "$(elf_header "$UNSTRIPPED")" != "$(elf_header "${OUT_DIR}/extractfv_android")" ]; then
+    echo "Error: strip changed the ELF header"
+    exit 1
+fi
+if [ "$(loads "$UNSTRIPPED")" != "$(loads "${OUT_DIR}/extractfv_android")" ]; then
+    echo "Error: strip changed the PT_LOAD layout"
+    diff <(loads "$UNSTRIPPED") <(loads "${OUT_DIR}/extractfv_android") || true
+    exit 1
+fi
+loads "$UNSTRIPPED" | while read -r _ off _ _ filesz _; do
+    skip=$((off))
+    count=$((filesz))
+    if [ "$skip" -eq 0 ]; then
+        # 第一个段以 ELF 头开始，其 section 表指针在 strip 后必然改变，跳过头部。
+        skip=64
+        count=$((count - 64))
+    fi
+    cmp -s -i "${skip}:${skip}" -n "$count" \
+        "$UNSTRIPPED" "${OUT_DIR}/extractfv_android" || exit 1
+done || {
+    echo "Error: strip changed the bytes inside a PT_LOAD segment"
+    exit 1
+}
+
+if "$READELF" -S -W "${OUT_DIR}/extractfv_android" | grep -q '\.debug_'; then
+    echo "Error: extractfv_android still contains .debug_* sections"
+    "$READELF" -S -W "${OUT_DIR}/extractfv_android" | grep '\.debug_'
+    exit 1
+fi
+if ! "$READELF" -S -W "${OUT_DIR}/extractfv_android" | grep -q '\.symtab'; then
+    echo "Error: .symtab is missing, only --strip-debug is allowed"
+    exit 1
+fi
+
+echo "      size: $(wc -c < "$UNSTRIPPED" | tr -d ' ') -> $(wc -c < "${OUT_DIR}/extractfv_android" | tr -d ' ') bytes"
+echo "      no .debug_* sections left, .symtab kept, PT_LOAD unchanged"
+rm -f "$UNSTRIPPED"
+
 #clean third party
 rm -rf ./third_party
 rm -rf ./build
