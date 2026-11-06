@@ -48,15 +48,17 @@ The module identifies the device by its codename (`ro.product.name`). The explic
 
 `nezha` and `nezha_global` are identified and mapped independently: `nezha_global` is the global ROM of the `nezha` device and ships different ABL firmware, so it is matched separately by its `...MIXM` build suffix and never falls back to the domestic image.
 
+**Safety.** Before anything is flashed, the installer backs up each partition it may write to `/data/adb/gbl_backup/<partition><slot>_<time>-<pid>.img`, alongside a `.meta` sidecar (codename, model, slot, source, SHA-256, timestamp) and a matching `.sha256` file. A failed backup aborts the run, and backups are never deleted automatically. Every write is followed by a read-back of exactly the written range; a mismatch is reported as a failure, never as success. GBL detection reports one of Vulnerable, NotVulnerable, Unknown or Error, and a failed detection is never treated as Vulnerable.
+
 **Installation & Usage:**
 When flashing the Magisk module via a root manager (like KernelSU, Magisk, or APatch), the customized script will interact with you using the volume keys:
 - **Volume Up (First-time installation):** The script automatically extracts the live `.abl` image, patches it, and flashes the patched file directly to `/dev/block/by-name/efisp`. After this finishes, you must reboot into Recovery mode and **format Data**. Once booted, install this module again (selecting Volume Down the second time) to complete the installation.
-- **Volume Down (OTA retention or post-format):** Used for retaining the BL version after an OTA update. Before updating OTA, use the module to automatically downgrade ABL, then reboot the system.
+- **Volume Down (post-format / non-first install):** The installer only installs the module files and then finishes — it does **not** read, back up, or flash any partition. This is the choice to make after formatting Data, or whenever the module is already set up and you only need it installed. It is **not** the OTA-retention step.
 
 > **Note:** This module's ID is `zeroedx_fake_bl_efisp`. If you previously installed the module under its old ID, uninstall the old module manually in your root manager before installing this one, so that the old and new modules do not run at the same time and touch the same partitions or files. Magisk/KernelSU will not automatically upgrade a module with the old ID to this one.
 
 ### 2. OTA Upgrade
-Before rebooting for an OTA update, use the module to flash and retain the old ABL version. If you are doing a major version upgrade, it is recommended to check "Update efisp", otherwise the device might get stuck on the initial boot screen.
+OTA retention is done from the module's **WebUI** ("Flash to the other slot" / `bin/bl_flasher.sh`), not from the volume-key installer menu. Before rebooting for an OTA update, open the module's page and run the flash to write the current slot's `abl` into the other slot so the old ABL is retained. If you are doing a major version upgrade, it is recommended to check "Update efisp", otherwise the device might get stuck on the initial boot screen.
 
 ### 3. Explanation of Different Variants
 1. `ABL.efi`: The patched ABL (fake re-lock).

@@ -35,4 +35,9 @@ if [ $? -ne 0 ]; then
     echo "Test 009_test_patch_inputs.sh failed. Stopping further tests."
     exit 1
 fi
+./010_test_safety_hardening.sh
+if [ $? -ne 0 ]; then
+    echo "Test 010_test_safety_hardening.sh failed. Stopping further tests."
+    exit 1
+fi
 echo "All tests passed successfully."
