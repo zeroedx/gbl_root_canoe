@@ -7,6 +7,7 @@ cd "$(dirname "$0")"
 WEBROOT=../magisk_module/webroot
 SCRIPT=../magisk_module/bin/bl_flasher.sh
 MODULEPROP=../magisk_module/module.prop
+MODULE=../magisk_module
 FAIL=0
 pass() { echo "Test passed: $1"; }
 fail() { echo "Test failed: $1"; FAIL=1; }
@@ -98,6 +99,31 @@ if grep -qE "versionCode|5\.[0-9]|7\.[0-9]" "$WEBROOT/app.js" "$WEBROOT/index.ht
   fail "the panel hardcodes a version string"
 else
   pass "module metadata is read from the script, not hardcoded"
+fi
+
+echo "--- version and versionCode stay consistent (v7.4 / 74) ---"
+# The module version is declared in module.prop as version=7.4 with
+# versionCode=74, following the repo's major*10+minor rule. This guards against
+# a bump that updates one field but not the other, or that diverges from the
+# documented release.
+prop_ver=$(sed -n 's/^version=//p' "$MODULEPROP" | head -n 1)
+prop_code=$(sed -n 's/^versionCode=//p' "$MODULEPROP" | head -n 1)
+if [ "$prop_ver" = "7.4" ] && [ "$prop_code" = "74" ]; then
+  pass "module.prop declares version=7.4 versionCode=74"
+else
+  fail "module.prop version mismatch (version=$prop_ver versionCode=$prop_code)"
+fi
+case "$prop_code" in
+  ''|*[!0-9]*) fail "versionCode must be numeric (got '$prop_code')" ;;
+  *) pass "versionCode is numeric ($prop_code)" ;;
+esac
+# The module tree must not carry a stale copy of the version anywhere else. The
+# bundled firmware (ablrepo) is binary and is skipped so a chance byte match
+# cannot make this flaky.
+if grep -rnE --exclude-dir=ablrepo 'version=7\.[0-3]|versionCode=7[0-3]' "$MODULE" >/dev/null 2>&1; then
+  fail "a stale version string remains in the module tree"
+else
+  pass "no stale version string in the module tree"
 fi
 
 echo "--- module.prop declares a valid, documented module id ---"

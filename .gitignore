@@ -46,3 +46,6 @@ magisk_module/tmp/
 tests/patch_abl
 tests/patch_output/
 tests/extracted/
+
+# Local agent workspace (memory, deliverables): never versioned
+.openhands/
