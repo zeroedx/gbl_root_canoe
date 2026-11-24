@@ -1,5 +1,5 @@
 #!/bin/sh
-# v7.4 safety hardening: verify the efisp write failure aborts before the ABL
+# v7.4.1 safety hardening: verify the efisp write failure aborts before the ABL
 # slot is written, and unit-test the hardened backup / read-back helpers.
 #
 # The end-to-end section drives the real bin/bl_flasher.sh with a stubbed

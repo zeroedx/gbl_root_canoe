@@ -207,7 +207,7 @@ flash_and_verify() { # <file> <blockdev> <log>
 resolve_device() {
   _product=$(getprop ro.product.name 2>/dev/null)
   case "$_product" in
-    myron|pudding|popsicle|pandora|nezha_global) printf '%s\n' "$_product" ;;
+    myron|pudding|popsicle|pandora|nezha_global|byron) printf '%s\n' "$_product" ;;
     nezha)
       _build="$(getprop ro.build.version.incremental 2>/dev/null)$(getprop ro.build.display.id 2>/dev/null)"
       case "$_build" in
@@ -291,8 +291,10 @@ while true; do #循环等待用户按键选择，音量上为是，音量下为�
       abort "abl backup failed"
     fi
     # Drop any stale outputs first so a failed run cannot leave an old
-    # patched.efi behind for the flash step to pick up.
-    rm -f "$MODPATH/tmp/LinuxLoader.efi" "$MODPATH/tmp/patched.efi"
+    # patched.efi behind for the flash step to pick up. patch.log is appended
+    # to below, so a stale copy would let an earlier run's GBL warning decide
+    # this run's vulnerability verdict.
+    rm -f "$MODPATH/tmp/LinuxLoader.efi" "$MODPATH/tmp/patched.efi" "$MODPATH/tmp/patch.log"
     if ! "$MODPATH/bin/extractfv" -o "$MODPATH/tmp" -v "$abl_part" >> "$MODPATH/tmp/extract.log" 2>&1; then
       ui_print "ABL 提取失败，已中止安装"
       abort "extract failed"
