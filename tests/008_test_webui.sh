@@ -101,17 +101,30 @@ else
   pass "module metadata is read from the script, not hardcoded"
 fi
 
-echo "--- version and versionCode stay consistent (v7.4 / 74) ---"
-# The module version is declared in module.prop as version=7.4 with
-# versionCode=74, following the repo's major*10+minor rule. This guards against
-# a bump that updates one field but not the other, or that diverges from the
-# documented release.
+echo "--- version and versionCode stay consistent (v7.4.1 / 741) ---"
+# The module version is declared in module.prop as version=7.4.1 with
+# versionCode=741. The repo used major*10+minor (71, 72, 73, 74); a patch
+# release needs a third component, so the code is major*100+minor*10+patch.
+# Magisk compares versionCode as an integer, so the value must stay monotonic.
 prop_ver=$(sed -n 's/^version=//p' "$MODULEPROP" | head -n 1)
 prop_code=$(sed -n 's/^versionCode=//p' "$MODULEPROP" | head -n 1)
-if [ "$prop_ver" = "7.4" ] && [ "$prop_code" = "74" ]; then
-  pass "module.prop declares version=7.4 versionCode=74"
+if [ "$prop_ver" = "7.4.1" ] && [ "$prop_code" = "741" ]; then
+  pass "module.prop declares version=7.4.1 versionCode=741"
 else
   fail "module.prop version mismatch (version=$prop_ver versionCode=$prop_code)"
+fi
+# versionCode must be derivable from the version string, so the two can never
+# drift apart on a future bump.
+derived=$(printf '%s' "$prop_ver" | awk -F. '{printf "%d", $1*100 + $2*10 + ($3 == "" ? 0 : $3)}')
+if [ "$derived" = "$prop_code" ]; then
+  pass "versionCode is derived from the version string ($prop_ver -> $prop_code)"
+else
+  fail "versionCode $prop_code does not match version $prop_ver (expected $derived)"
+fi
+if [ "$prop_code" -gt 74 ]; then
+  pass "versionCode stays monotonic (741 > 74)"
+else
+  fail "versionCode went backwards ($prop_code <= 74)"
 fi
 case "$prop_code" in
   ''|*[!0-9]*) fail "versionCode must be numeric (got '$prop_code')" ;;
@@ -120,7 +133,7 @@ esac
 # The module tree must not carry a stale copy of the version anywhere else. The
 # bundled firmware (ablrepo) is binary and is skipped so a chance byte match
 # cannot make this flaky.
-if grep -rnE --exclude-dir=ablrepo 'version=7\.[0-3]|versionCode=7[0-3]' "$MODULE" >/dev/null 2>&1; then
+if grep -rnE --exclude-dir=ablrepo 'version=7\.[0-3](\.[0-9]+)?$|versionCode=7[0-3]$' "$MODULE" >/dev/null 2>&1; then
   fail "a stale version string remains in the module tree"
 else
   pass "no stale version string in the module tree"

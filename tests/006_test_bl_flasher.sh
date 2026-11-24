@@ -169,12 +169,15 @@ out=$(run_status)
   || fail "live run misreported ($out)"
 kill "$live" 2>/dev/null
 
-# the device/module metadata must be present for the panel. module.prop is
-# written inside the throwaway $WORK tree, so the repository is never touched.
-printf '%s\n' 'id=zeroedx_fake_bl_efisp' 'name=假回锁' 'version=7.4' > "$WORK/mod/module.prop"
+# The device/module metadata must be present for the panel. module.prop is
+# written inside the throwaway $WORK tree, so the repository is never touched;
+# the expected version is read from the real module.prop so a version bump
+# cannot silently desynchronise this fixture from the shipped metadata.
+EXPECTED_VER=$(sed -n 's/^version=//p' "$MODULE/module.prop" | head -n 1)
+printf '%s\n' 'id=zeroedx_fake_bl_efisp' 'name=假回锁' "version=$EXPECTED_VER" > "$WORK/mod/module.prop"
 out=$(run_status)
 [ "$(status_field "$out" DEVICE)" = "myron" ] \
-  && [ "$(status_field "$out" MODULE_VERSION)" = "7.4" ] \
+  && [ "$(status_field "$out" MODULE_VERSION)" = "$EXPECTED_VER" ] \
   && pass "status exposes DEVICE and MODULE_VERSION" \
   || fail "status missing device/module metadata ($out)"
 
