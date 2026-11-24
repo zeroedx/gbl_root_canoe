@@ -311,6 +311,71 @@ case "$out" in
   *) fail "downgrade cancel not honoured ($out)" ;;
 esac
 
+echo "--- byron first install (Vol+) reaches the format step ---"
+reset_fixtures
+out=$(STUB_PRODUCT=byron EXTRACTFV_MODE=ok PATCH_ABL_MODE=vuln run_install up)
+case "$out" in
+  *"设备识别通过：byron"*) pass "byron: device identified as byron" ;;
+  *) fail "byron: device was not identified ($(printf '%s' "$out" | head -n3 | tr '\n' ' '))" ;;
+esac
+case "$out" in
+  *"安装完成，请重启到recovery进行格式化"*) pass "byron: first install reaches format step" ;;
+  *) fail "byron: did not reach format step" ;;
+esac
+if [ "$(cat "$WORK/dev/block/by-name/efisp" 2>/dev/null)" = "patched" ]; then
+  pass "byron: patched efisp written and read back"
+else
+  fail "byron: efisp does not hold the patched bytes"
+fi
+if ls "$WORK/backup"/abl_a*.img >/dev/null 2>&1 && ls "$WORK/backup"/efisp*.img >/dev/null 2>&1; then
+  pass "byron: abl and efisp backed up before flashing"
+else
+  fail "byron: a required backup is missing"
+fi
+
+echo "--- byron on a non-vulnerable ABL takes the local downgrade path ---"
+# Stage byron's real bundled firmware in the fake module tree so the downgrade
+# uses the local copy instead of reaching for the network. The downgrade path
+# only copies bytes, so the actual image keeps the test honest about size.
+mkdir -p "$WORK/mod/ablrepo/byron"
+cp "$MODULE/ablrepo/byron/abl.img" "$WORK/mod/ablrepo/byron/abl.img"
+( cd "$WORK/mod/ablrepo/byron" && sha256sum abl.img > abl.sha256 )
+reset_fixtures
+out=$(STUB_PRODUCT=byron EXTRACTFV_MODE=ok PATCH_ABL_MODE=novuln run_install up up)
+case "$out" in
+  *"abl 分区已降级并通过校验"*) pass "byron: local downgrade completed and verified" ;;
+  *"ABORT: abl repo lookup failed"*) fail "byron: local firmware was not used for the downgrade" ;;
+  *) fail "byron: downgrade path not reached ($(printf '%s' "$out" | tail -n2 | tr '\n' ' '))" ;;
+esac
+if cmp -s "$WORK/dev/block/by-name/abl_a" "$MODULE/ablrepo/byron/abl.img"; then
+  pass "byron: the downgrade image landed on the abl partition"
+else
+  fail "byron: abl partition does not hold the downgrade image"
+fi
+rm -rf "$WORK/mod/ablrepo/byron"
+
+echo "--- a stale patch.log cannot flip the GBL verdict ---"
+# The patch log is appended to, so a leftover from an earlier run used to make a
+# vulnerable ABL look non-vulnerable and send the installer into the downgrade
+# prompt. A fresh run must clear it and reach the format step on its own verdict.
+reset_fixtures
+# A successful run removes $MODPATH/tmp, so recreate it before planting the log.
+mkdir -p "$WORK/mod/tmp"
+printf 'Warning: Failed to patch ABL GBL\n' > "$WORK/mod/tmp/patch.log"
+# Two extra keys are queued so that, if the verdict is wrongly flipped, the
+# downgrade prompt is answered and the case fails on its assertion instead of
+# blocking the suite on a key read.
+out=$(EXTRACTFV_MODE=ok PATCH_ABL_MODE=vuln run_install up up down)
+case "$out" in
+  *"安装完成，请重启到recovery进行格式化"*)
+    case "$out" in
+      *"检测到当前 ABL 没有 GBL 漏洞"*)
+        fail "stale patch.log flipped a vulnerable ABL to non-vulnerable" ;;
+      *) pass "stale patch.log is discarded before the verdict" ;;
+    esac ;;
+  *) fail "stale patch.log blocked the install ($(printf '%s' "$out" | tail -n1))" ;;
+esac
+
 echo "--- OTA update (Vol-) completes without touching partitions ---"
 reset_fixtures
 out=$(run_install down)

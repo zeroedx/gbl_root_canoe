@@ -44,7 +44,7 @@ The Magisk module is designed to run directly on your rooted Android device.
 - Kernel must NOT have Baseband Guard.
 
 **Supported devices:**
-The module identifies the device by its codename (`ro.product.name`). The explicitly supported device identifiers are `myron`, `pudding`, `popsicle`, `pandora`, `nezha`, and `nezha_global`. For each of these a vulnerable ABL is bundled in the module; if the bundled firmware is missing or fails its SHA-256 check, the module falls back to the cloud repo and verifies the download the same way. An unknown device is never mapped onto another model — installation aborts safely without touching the `abl` partition.
+The module identifies the device by its codename (`ro.product.name`). The explicitly supported device identifiers are `myron`, `pudding`, `popsicle`, `pandora`, `nezha`, `nezha_global`, and `byron`. For each of these a vulnerable ABL is bundled in the module; if the bundled firmware is missing or fails its SHA-256 check, the module falls back to the cloud repo and verifies the download the same way. An unknown device is never mapped onto another model — installation aborts safely without touching the `abl` partition.
 
 `nezha` and `nezha_global` are identified and mapped independently: `nezha_global` is the global ROM of the `nezha` device and ships different ABL firmware, so it is matched separately by its `...MIXM` build suffix and never falls back to the domestic image.
 
