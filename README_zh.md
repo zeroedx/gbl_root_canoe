@@ -1,40 +1,12 @@
 # GBL Root Canoe
 
-[English](README.md)
-
 `gbl_root_canoe` 是一个基于 EDK2 的工作区，用于修补高通 ABL (Android Bootloader) 内的 EFI 程序。它利用 GBL (Generic Bootloader Loader) 漏洞对 ABL 打补丁，主要目的是在骁龙 8 Gen 5 / 8 Elite (Gen 5) 设备上实现**假回锁**（绕过 Bootloader 的解锁状态检测）。修补后的 EFI 会被刷入 `efisp` 分区。
 
 本项目提供一类构建产物：面向设备端使用的 **Magisk 模块**（`magisk_module.zip`）。
+<img width="1080" height="1600" alt="98D7AB68DDCF6AB49B1BAEEBA0C9E094" src="https://github.com/user-attachments/assets/701bdd1b-7aa2-4d55-9388-cdd54c899025" />
 
----
 
-## 开发者构建指南 (Builder Guide)
-
-本节适用于希望从源码编译产物的开发者。
-
-### 编译依赖
-构建必须在 **Linux** 环境下进行：
-- `gcc` / `clang`, `make`, `zip`, `python3`
-- `liblzma-dev` (用于编译 `extractfv` 解包工具)
-- **Android NDK**（用于 `make build_module` 交叉编译 Android 平台的修补工具）
-
-### 核心构建目标
-
-**注意**：在仅编译产物时，**不需要**事先提供 `abl.img`。通过 `DIST_NAME` 环境变量为发布压缩包命名（例如 `DIST_NAME=magisk_module make build_module`）。
-
-- **`make build_module`**
-  使用 NDK 将修补工具交叉编译至 Android 原生平台架构，并封装为一个标准的 KernelSU/Magisk 模块。
-
-- **`make patch`**
-  开发辅助目标：对本地 `images/abl.img` 打补丁，结果输出到 `dist/` 供检查。
-
----
-
-## 普通用户使用指南 (User Guide)
-
-本节面向使用 `release/` 目录中已编译产物的普通用户。更详细的使用说明请参考 [Wiki](https://github.com/superturtlee/gbl_root_canoe/wiki)。
-
-### 1. 使用模块版本（手机端）
+###  使用模块版本
 
 模块可直接通过 Root 管理器在有 Root 权限的手机上刷入运行。
 
@@ -46,7 +18,6 @@
 **支持机型：**
 模块通过设备代号（`ro.product.name`）识别机型。当前明确支持的设备标识为：`myron`、`pudding`、`popsicle`、`pandora`、`nezha`、`nezha_global`、`byron`。模块为上述每个机型内置了带漏洞的 ABL；若本地内置固件缺失或未通过 SHA-256 校验，模块会回退到云端仓库获取，并以同样方式校验下载结果。未知设备不会被映射到其他机型，而是安全中止安装，不会触碰 `abl` 分区。
 
-`nezha` 与 `nezha_global` 保持独立识别与固件映射：`nezha_global` 是 `nezha` 机型的全球版（Global）ROM，其 ABL 固件与 `nezha` 不同，因此单独通过 `...MIXM` 版本后缀匹配，绝不会回退到国行镜像。
 
 **安全机制。** 在刷写任何分区之前，安装脚本会先把将要写入的分区备份到 `/data/adb/gbl_backup/<分区><槽位>_<时间>-<pid>.img`，并同时写入 `.meta` 元数据（机型代号、机型、槽位、来源、SHA-256、时间）与对应的 `.sha256` 文件。备份失败会中止安装，且备份不会被自动删除。每次写入之后都会按实际写入范围回读校验；校验不一致一律判定为失败，绝不报告成功。GBL 检测结果分为 Vulnerable、NotVulnerable、Unknown、Error 四种，检测失败绝不会被当作 Vulnerable。
 
@@ -55,11 +26,7 @@
 - **按音量上键 (首次全新安装)：** 脚本会自动提取当前槽位的 `.abl`，对其打补丁，并把修补后的文件直接刷入 `/dev/block/by-name/efisp`。完成后，请重启手机进入 Recovery 模式**格式化 Data**。开机后，请再次刷入本模块（第二次刷入时按音量下键）以走完完整安装流程。
 - **按音量下键 (格式化后 / 非首次安装)：** 安装脚本只安装模块文件后即结束，**不会**读取、备份或刷写任何分区。格式化 Data 之后、或模块已经配置好只需重新安装时，选此项。它**不是** OTA 保留步骤。
 
-> **注意：** 本模块的 ID 为 `zeroedx_fake_bl_efisp`。若你之前安装过使用旧 ID 的同名模块，请先在 Root 管理器中手动卸载旧模块，再安装本模块，以免新旧模块同时运行并操作相同的分区或文件。Magisk/KernelSU 不会自动将旧 ID 的模块升级为本模块。
 
-### 2. OTA 升级
+### OTA 升级
 OTA 保留操作在模块的 **WebUI**（“刷写到另一槽位” / `bin/bl_flasher.sh`）中完成，而不是安装时的音量键菜单。重启进行 OTA 更新前，请打开模块页面执行刷写，把当前槽位的 `abl` 写入另一槽位，从而保留旧版本 ABL。跨版本升级时建议勾选“更新 efisp”，否则可能卡一屏。
 
-### 3. 文件说明
-1. `ABL.efi`：带假回锁的修补后 ABL。
-2. `ABL_original.efi`：原始未破解 ABL，供开发者用 IDA 分析、报错使用，**不要刷入**。
