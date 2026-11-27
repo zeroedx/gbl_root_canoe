@@ -217,14 +217,7 @@ button:not(:disabled):hover { filter: brightness(1.04); }
   -webkit-overflow-scrolling: touch;
 }
 
-/* ---- about ---- */
-.about p {
-  margin: 0 0 8px;
-  color: var(--text-soft);
-  font-size: .88rem;
-}
-.about p:last-child { margin-bottom: 0; }
-
+/* ---- feedback ---- */
 .feedback {
   min-height: 1.2em;
   margin: 0 4px;

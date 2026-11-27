@@ -186,6 +186,15 @@ else
   pass "the efisp toggle no longer advertises an off-by-default state"
 fi
 
+echo "--- the panel carries no trailing explanation block ---"
+# The bottom "说明" section was removed on request; the panel ends with the log.
+if grep -q 'class="about"\|aboutHeading\|aboutDevices\|aboutPrereq\|aboutSafety' \
+     "$WEBROOT/index.html" "$WEBROOT/i18n.js" "$WEBROOT/style.css"; then
+  fail "the bottom explanation block is still present"
+else
+  pass "the bottom explanation block is gone from markup, locales and styles"
+fi
+
 if [ "$FAIL" -eq 0 ]; then
   echo "All tests passed successfully."
   exit 0

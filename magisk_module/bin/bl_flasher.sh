@@ -494,17 +494,14 @@ run_flash() {
     exit 0
   fi
 
-  # Back up the partitions this run can write BEFORE flashing. A failed backup
-  # aborts the run, so no destructive step depends on a missing backup. Each run
-  # writes a new timestamped file and never deletes an existing backup.
+  # Back up efisp BEFORE it is flashed: a failed backup aborts the run, since
+  # nothing destructive may depend on a backup that does not exist. Each run
+  # writes a new timestamped file and never deletes an existing backup. The abl
+  # downgrade is deliberately NOT backed up: the write-back verification aborts
+  # before the loader is touched, and ablrepo already ships the original image.
   abl_part=$(partition_path abl "$target_slot")
-  write_log '开始备份原始分区'
-  if ! backup_partition "$abl_part" abl "$target_slot"; then
-    write_state 'error' 'abl 备份失败，已中止刷写'
-    write_log 'abl 备份失败，已中止刷写'
-    exit 1
-  fi
   if [ "$efisp_mode" -eq 1 ]; then
+    write_log '开始备份原始分区'
     if ! backup_partition "$(partition_path efisp "")" efisp "$current_slot"; then
       write_state 'error' 'efisp 备份失败，已中止刷写'
       write_log 'efisp 备份失败，已中止刷写'
@@ -577,6 +574,12 @@ start_flash() {
   if pid=$(current_pid 2>/dev/null); then
     emit "ALREADY_RUNNING=${pid}"; return 0
   fi
+  # Remember which run the state file describes before spawning. The worker
+  # claims a new task id as its first act, so an unchanged id after the wait
+  # means the worker never ran at all -- and the state left on disk is the
+  # PREVIOUS run's verdict, not this one's. Reporting it would tell the user a
+  # flash finished when nothing was attempted.
+  _prev_task=''; [ -f "$TASK_FILE" ] && read -r _prev_task < "$TASK_FILE"
   if command -v nohup >/dev/null 2>&1; then
     nohup sh "$0" flash "$update_efisp" >/dev/null 2>&1 &
   else
@@ -587,6 +590,11 @@ start_flash() {
     emit "STARTED=1
 PID=${pid}"
   else
+    _task=''; [ -f "$TASK_FILE" ] && read -r _task < "$TASK_FILE"
+    if [ -z "$_task" ] || [ "$_task" = "$_prev_task" ]; then
+      emit 'STARTED=0'
+      return 0
+    fi
     _st=''; [ -f "$STATE_FILE" ] && read -r _st < "$STATE_FILE"
     case "$_st" in
       success|error|warning) emit "FINISHED=${_st}" ;;
