@@ -196,6 +196,19 @@ if [ "$(cat "$WORK/e2e/dev/block/by-name/abl_b")" = "ORIGINAL-ABL-A" ]; then
 else
   fail "success path did not copy the ABL slot"
 fi
+# Only efisp is backed up. The ABL downgrade is covered by the write-back
+# verification and ablrepo already ships the original image, so a second copy
+# would only double the partition read.
+if ls "$WORK/e2e/backup"/abl_*.img >/dev/null 2>&1; then
+  fail "the flasher created an ABL backup ($(ls "$WORK/e2e/backup"))"
+else
+  pass "the flasher backs up efisp only, never the ABL slot"
+fi
+if ls "$WORK/e2e/backup"/efisp_*.img >/dev/null 2>&1; then
+  pass "the flasher still backs up efisp before writing it"
+else
+  fail "the flasher did not back up efisp"
+fi
 
 # Case 2: efisp WRITE fails → must abort with error, ABL slot untouched.
 e2e_setup warn
@@ -312,6 +325,73 @@ fi
 case "$(e2e_log)" in
   *"GBL 状态无法确定"*) pass "skip-efisp/Error: log states the abort reason" ;;
   *) fail "skip-efisp/Error: log missing the abort reason" ;;
+esac
+
+# ── start_flash: a worker that never runs must not report the previous verdict ──
+echo "--- start_flash: stale state is never reported as this run's result ---"
+
+# start_flash spawns the worker in the background, so the worker is replaced by
+# a no-op here: this isolates the "did a new run actually begin?" decision from
+# the flashing itself. The state left on disk belongs to an EARLIER run.
+start_setup() { # start_setup <spawn|finished>
+  rm -rf "$WORK/start"; mkdir -p "$WORK/start/mod/bin" "$WORK/start/mod/tmp"
+  cp "$MODULE/bin/bl_flasher.sh" "$WORK/start/mod/bin/bl_flasher.sh"
+  # The single-quoted sed programs deliberately match the shipped text literally,
+  # so $0/$TASK_FILE must NOT be expanded here.
+  # shellcheck disable=SC2016
+  if [ "$1" = "spawn" ]; then
+    # No worker at all: neither spawn branch may start one.
+    sed -i 's|^  if command -v nohup >/dev/null 2>&1; then$|  if false; then|' \
+      "$WORK/start/mod/bin/bl_flasher.sh"
+    sed -i 's|^    nohup sh "$0" flash "$update_efisp" >/dev/null 2>&1 &$|    :|' \
+      "$WORK/start/mod/bin/bl_flasher.sh"
+    sed -i 's|^    sh "$0" flash "$update_efisp" </dev/null >/dev/null 2>&1 &$|    :|' \
+      "$WORK/start/mod/bin/bl_flasher.sh"
+  else
+    # A worker that runs to completion: it claims a new task id and records a
+    # verdict, which are the real worker's first and last acts.
+    sed -i 's|^    nohup sh "$0" flash "$update_efisp" >/dev/null 2>&1 &$|    printf "7-8\\n" > "$TASK_FILE"; printf "success\\n" > "$STATE_FILE" \&|' \
+      "$WORK/start/mod/bin/bl_flasher.sh"
+  fi
+  printf 'success\n' > "$WORK/start/mod/tmp/state"
+  printf 'previous run\n' > "$WORK/start/mod/tmp/message"
+  printf '0\n' > "$WORK/start/mod/tmp/task_id"
+  printf 'old\n' > "$WORK/start/mod/tmp/updated"
+}
+
+start_run() {
+  PATH="$WORK/e2ebin:$PATH" MODDIR="$WORK/start/mod" \
+  GBL_BY_NAME_DIR="$WORK/start/dev/block/by-name" \
+  GBL_BACKUP_DIR="$WORK/start/backup" \
+  STUB_SLOT=_a STUB_PRODUCT=myron \
+  sh "$WORK/start/mod/bin/bl_flasher.sh" start "${1:-skip-efisp}"
+}
+
+start_setup spawn
+out=$(start_run skip-efisp 2>&1)
+case "$out" in
+  *FINISHED=*) fail "start_flash reported the stale verdict as this run's result ($out)" ;;
+  *STARTED=0*) pass "a worker that never ran reports STARTED=0, not a stale verdict" ;;
+  *) fail "start_flash returned an unexpected result ($out)" ;;
+esac
+
+# Same situation, but the state file says the previous run was still running:
+# it must not be reported as a completion either.
+start_setup spawn
+printf 'running\n' > "$WORK/start/mod/tmp/state"
+out=$(start_run update-efisp 2>&1)
+case "$out" in
+  *FINISHED=*) fail "start_flash reported a stale verdict after a failed spawn ($out)" ;;
+  *STARTED=0*) pass "a failed spawn never reports FINISHED" ;;
+  *) fail "start_flash returned an unexpected result ($out)" ;;
+esac
+
+# A worker that DOES run and finish must still be reported as FINISHED.
+start_setup finished
+out=$(start_run skip-efisp 2>&1)
+case "$out" in
+  *FINISHED=success*) pass "a run that started and finished is still reported as FINISHED" ;;
+  *) fail "a completed run was not reported ($out)" ;;
 esac
 
 # ── unit tests: hardened helpers, extracted verbatim ──

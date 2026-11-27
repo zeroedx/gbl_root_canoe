@@ -58,8 +58,8 @@
     <section class="actions" aria-labelledby="actions-title">
       <h2 id="actions-title" class="section-title" data-i18n="actionsHeading">操作</h2>
       <label class="option-check" for="updateEfispCheckbox">
-        <input id="updateEfispCheckbox" type="checkbox">
-        <span data-i18n="updateEfisp">同时更新 efisp（默认关闭）</span>
+        <input id="updateEfispCheckbox" type="checkbox" checked>
+        <span data-i18n="updateEfisp">同时更新 efisp</span>
       </label>
       <label class="option-check" for="debugModeCheckbox">
         <input id="debugModeCheckbox" type="checkbox">
@@ -69,7 +69,6 @@
         <button id="flashButton" class="primary" type="button" data-i18n="flash">刷写到另一槽位</button>
         <button id="clearLogButton" class="quiet" type="button" data-i18n="clearLog">清空日志</button>
       </div>
-      <p class="danger-note" data-i18n="dangerNote"></p>
     </section>
 
     <section class="log" aria-labelledby="log-title">
@@ -78,13 +77,6 @@
         <span class="caption" data-i18n="logHint">自动读取最近 200 行</span>
       </div>
       <pre id="logOutput" data-i18n="logEmpty">暂无日志输出</pre>
-    </section>
-
-    <section class="about" aria-labelledby="about-title">
-      <h2 id="about-title" class="section-title" data-i18n="aboutHeading">说明</h2>
-      <p data-i18n="aboutDevices"></p>
-      <p data-i18n="aboutPrereq"></p>
-      <p data-i18n="aboutSafety"></p>
     </section>
 
     <p id="feedback" class="feedback" role="status" aria-live="polite"></p>

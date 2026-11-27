@@ -194,11 +194,6 @@ button:not(:disabled):hover { filter: brightness(1.04); }
 .option-check input { width: 18px; height: 18px; accent-color: var(--accent); }
 .action-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .action-row .primary { flex: 1 1 auto; }
-.danger-note {
-  margin: 0;
-  font-size: .84rem;
-  color: var(--warn);
-}
 
 /* ---- log ---- */
 .section-heading {
@@ -222,14 +217,7 @@ button:not(:disabled):hover { filter: brightness(1.04); }
   -webkit-overflow-scrolling: touch;
 }
 
-/* ---- about ---- */
-.about p {
-  margin: 0 0 8px;
-  color: var(--text-soft);
-  font-size: .88rem;
-}
-.about p:last-child { margin-bottom: 0; }
-
+/* ---- feedback ---- */
 .feedback {
   min-height: 1.2em;
   margin: 0 4px;

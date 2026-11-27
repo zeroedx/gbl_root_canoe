@@ -59,6 +59,7 @@ check_map "pudding maps to pudding"        pudding      pudding      ""         
 check_map "popsicle maps to popsicle"      popsicle     popsicle     ""                  ""
 check_map "pandora maps to pandora"        pandora      pandora      ""                  ""
 check_map "byron maps to byron"            byron        byron        ""                  ""
+check_map "songyuan maps to songyuan"      songyuan     songyuan     ""                  ""
 check_map "nezha_global maps to itself"    nezha_global nezha_global ""                  ""
 check_map "nezha CN (CNXM) -> nezha"       nezha        nezha        "OS3.0.1.0.VNACNXM" ""
 check_map "nezha EEA (EUXM) -> nezha"      nezha        nezha        "OS3.0.336.0.XPAEUXM" ""
@@ -68,7 +69,7 @@ check_map "unknown product -> no match"    ""           unknown_x99  ""         
 check_map "empty product -> no match"      ""           ""           ""                  ""
 
 echo "--- firmware mapping & integrity ---"
-for p in myron pudding popsicle pandora nezha nezha_global byron; do
+for p in myron pudding popsicle pandora nezha nezha_global byron songyuan; do
   dir="$ABLREPO/$p"
   if [ ! -f "$dir/abl.img" ] || [ ! -f "$dir/abl.sha256" ]; then
     fail "$p: firmware files missing in $dir"
@@ -81,13 +82,21 @@ done
 
 # byron ships its own image and must never be a stand-in for another model:
 # a byte-identical copy of an existing device's firmware would mean the wrong
-# bootloader is bundled under byron's name.
+# bootloader is bundled under byron's name. songyuan is excluded on purpose: it
+# is a different model that happens to ship the same vulnerable ABL build, so
+# sharing that exact image is correct rather than a mis-mapping.
 for p in myron pudding popsicle pandora nezha nezha_global; do
   if cmp -s "$ABLREPO/byron/abl.img" "$ABLREPO/$p/abl.img"; then
     fail "byron firmware is identical to $p (must be distinct)"
   fi
 done
 pass "byron firmware is distinct from every other device"
+
+if cmp -s "$ABLREPO/byron/abl.img" "$ABLREPO/songyuan/abl.img"; then
+  pass "songyuan shares byron's ABL build (same vulnerable firmware)"
+else
+  fail "songyuan firmware differs from byron although they share one ABL build"
+fi
 
 # nezha and nezha_global must be distinct firmware, never shared.
 if cmp -s "$ABLREPO/nezha/abl.img" "$ABLREPO/nezha_global/abl.img"; then
@@ -151,7 +160,7 @@ classify_firmware() {
 if [ ! -x "$EXTRACTFV" ] || [ ! -x "$PATCH_ABL" ]; then
   fail "could not build extractfv/patch_abl"
 else
-  for p in myron pudding popsicle pandora nezha nezha_global byron; do
+  for p in myron pudding popsicle pandora nezha nezha_global byron songyuan; do
     out=$(classify_firmware "$ABLREPO/$p/abl.img" "$WORK/vuln_$p")
     case "$out" in
       vuln)    pass "$p: firmware carries the GBL vulnerability" ;;
@@ -231,7 +240,7 @@ EOF
 
   # Firmware verification: the real verify_sha256() must accept an intact image
   # and reject a tampered one, checking its actual return status.
-  for p in myron pudding popsicle pandora nezha nezha_global byron; do
+  for p in myron pudding popsicle pandora nezha nezha_global byron songyuan; do
     if verify "$ABLREPO/$p/abl.img" "$ABLREPO/$p/abl.sha256"; then
       pass "$p: verify_sha256 accepts the intact firmware"
     else

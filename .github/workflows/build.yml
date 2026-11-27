@@ -12,7 +12,8 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y lld clang llvm uuid-dev liblzma-dev zip shellcheck
+        sudo apt-get install -y lld clang llvm uuid-dev liblzma-dev zip shellcheck \
+          gcc-mingw-w64-x86-64 unzip
 
     - name: Setup Variables
       run: |
@@ -42,14 +43,21 @@ jobs:
         make clean
         DIST_NAME=magisk_module make build_module
 
+    - name: Build toolkits
+      run: |
+        make toolkit_android
+        make toolkit_windows
+
     - name: Verify build artifacts
       run: |
         set -eu
         test -f release/magisk_module.zip
-        # Exactly one package must land in release/.
+        test -f release/toolkit_android.zip
+        test -f release/toolkit_windows.zip
+        # Exactly the three expected packages must land in release/.
         count=$(find release -maxdepth 1 -type f -name '*.zip' | wc -l)
-        if [ "$count" -ne 1 ]; then
-          echo "expected exactly one zip in release/, found $count"
+        if [ "$count" -ne 3 ]; then
+          echo "expected exactly three zips in release/, found $count"
           ls -l release
           exit 1
         fi
@@ -98,9 +106,41 @@ jobs:
           unzip -Z1 release/magisk_module.zip | grep -E '^(tmp/|.*\.log$)'
           exit 1
         fi
+        # A toolkit must ship the tools for its own platform and nothing else.
+        # No BDS image may ship: the module writes the loader raw at offset 0 of
+        # efisp, so a BDS flashed over that layout would break boot.
+        for pair in toolkit_android:bin/extractfv:bin/patch_abl \
+                    toolkit_windows:bin/extractfv.exe:bin/patch_abl.exe; do
+          zip_name=${pair%%:*}
+          rest=${pair#*:}
+          tool1=${rest%%:*}
+          tool2=${rest#*:}
+          for f in "$tool1" "$tool2"; do
+            unzip -l "release/$zip_name.zip" "$f" >/dev/null 2>&1 || {
+              echo "release/$zip_name.zip is missing $f"
+              exit 1
+            }
+          done
+          if unzip -Z1 "release/$zip_name.zip" | grep -qi 'BDS\.efi'; then
+            echo "release/$zip_name.zip ships a BDS image"
+            exit 1
+          fi
+        done
 
     - name: Upload Magisk Module
       uses: actions/upload-artifact@v4
       with:
         name: magisk_module
         path: release/magisk_module.zip
+
+    - name: Upload Android toolkit
+      uses: actions/upload-artifact@v4
+      with:
+        name: toolkit_android
+        path: release/toolkit_android.zip
+
+    - name: Upload Windows toolkit
+      uses: actions/upload-artifact@v4
+      with:
+        name: toolkit_windows
+        path: release/toolkit_windows.zip
