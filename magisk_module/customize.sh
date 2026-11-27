@@ -207,7 +207,8 @@ flash_and_verify() { # <file> <blockdev> <log>
 resolve_device() {
   _product=$(getprop ro.product.name 2>/dev/null)
   case "$_product" in
-    myron|pudding|popsicle|pandora|nezha_global|byron) printf '%s\n' "$_product" ;;
+    myron|pudding|popsicle|pandora|nezha_global|byron|songyuan)
+      printf '%s\n' "$_product" ;;
     nezha)
       _build="$(getprop ro.build.version.incremental 2>/dev/null)$(getprop ro.build.display.id 2>/dev/null)"
       case "$_build" in
@@ -278,17 +279,16 @@ while true; do #循环等待用户按键选择，音量上为是，音量下为�
     fi
     abl_part=$(partition_path abl "$current_slot")
     efisp_part=$(partition_path efisp "")
-    # Back up the partitions this flow writes BEFORE anything is flashed. A
-    # failed backup aborts the run: no destructive step is allowed to depend on
-    # a backup that does not exist. Backups are never deleted automatically.
+    # Back up efisp BEFORE it is flashed: a failed backup aborts the run, since
+    # nothing destructive may depend on a backup that does not exist. Backups
+    # are never deleted automatically. The abl downgrade is deliberately NOT
+    # backed up: a failed downgrade is already caught by the write-back
+    # verification, which aborts before the loader is touched, so a backup copy
+    # would only double the partition read for no added safety.
     ui_print "正在备份原始分区..."
     if ! backup_partition "$efisp_part" efisp "$current_slot"; then
       ui_print "efisp 备份失败，已中止安装（未刷写任何分区）"
       abort "efisp backup failed"
-    fi
-    if ! backup_partition "$abl_part" abl "$current_slot"; then
-      ui_print "abl 备份失败，已中止安装（未刷写任何分区）"
-      abort "abl backup failed"
     fi
     # Drop any stale outputs first so a failed run cannot leave an old
     # patched.efi behind for the flash step to pick up. patch.log is appended

@@ -194,11 +194,13 @@ if [ -n "$bk" ] && [ -f "$bk.meta" ] && [ -f "$bk.sha256" ]; then
 else
   fail "no efisp backup with metadata was produced"
 fi
-# The abl backup must also exist (backup happens before the downgrade/flash).
+# The abl downgrade is intentionally not backed up: the write-back verification
+# already aborts a failed downgrade before the loader is touched. Assert the
+# absence, so a stray backup cannot silently reappear.
 if ls "$WORK/backup"/abl_a*.img >/dev/null 2>&1; then
-  pass "abl partition was backed up too"
+  fail "abl partition was backed up, but the downgrade must not back it up"
 else
-  fail "abl partition was not backed up"
+  pass "abl downgrade does not create a backup"
 fi
 
 echo "--- a failed backup aborts before any flash ---"
@@ -327,10 +329,15 @@ if [ "$(cat "$WORK/dev/block/by-name/efisp" 2>/dev/null)" = "patched" ]; then
 else
   fail "byron: efisp does not hold the patched bytes"
 fi
-if ls "$WORK/backup"/abl_a*.img >/dev/null 2>&1 && ls "$WORK/backup"/efisp*.img >/dev/null 2>&1; then
-  pass "byron: abl and efisp backed up before flashing"
+if ls "$WORK/backup"/efisp*.img >/dev/null 2>&1; then
+  pass "byron: efisp backed up before flashing"
 else
-  fail "byron: a required backup is missing"
+  fail "byron: the efisp backup is missing"
+fi
+if ls "$WORK/backup"/abl_a*.img >/dev/null 2>&1; then
+  fail "byron: abl was backed up although the downgrade must not back it up"
+else
+  pass "byron: abl downgrade created no backup"
 fi
 
 echo "--- byron on a non-vulnerable ABL takes the local downgrade path ---"
@@ -353,6 +360,53 @@ else
   fail "byron: abl partition does not hold the downgrade image"
 fi
 rm -rf "$WORK/mod/ablrepo/byron"
+
+echo "--- songyuan first install (Vol+) reaches the format step ---"
+# songyuan is a separate model that ships the same vulnerable ABL build as
+# byron, so its own ablrepo entry must drive the install end to end.
+reset_fixtures
+out=$(STUB_PRODUCT=songyuan EXTRACTFV_MODE=ok PATCH_ABL_MODE=vuln run_install up)
+case "$out" in
+  *"设备识别通过：songyuan"*) pass "songyuan: device identified as songyuan" ;;
+  *) fail "songyuan: device was not identified ($(printf '%s' "$out" | head -n3 | tr '\n' ' '))" ;;
+esac
+case "$out" in
+  *"安装完成，请重启到recovery进行格式化"*) pass "songyuan: first install reaches format step" ;;
+  *) fail "songyuan: did not reach format step" ;;
+esac
+if [ "$(cat "$WORK/dev/block/by-name/efisp" 2>/dev/null)" = "patched" ]; then
+  pass "songyuan: patched efisp written and read back"
+else
+  fail "songyuan: efisp does not hold the patched bytes"
+fi
+if ls "$WORK/backup"/efisp*.img >/dev/null 2>&1; then
+  pass "songyuan: efisp backed up before flashing"
+else
+  fail "songyuan: the efisp backup is missing"
+fi
+if ls "$WORK/backup"/abl_a*.img >/dev/null 2>&1; then
+  fail "songyuan: abl was backed up although the downgrade must not back it up"
+else
+  pass "songyuan: abl downgrade created no backup"
+fi
+
+echo "--- songyuan on a non-vulnerable ABL takes the local downgrade path ---"
+mkdir -p "$WORK/mod/ablrepo/songyuan"
+cp "$MODULE/ablrepo/songyuan/abl.img" "$WORK/mod/ablrepo/songyuan/abl.img"
+( cd "$WORK/mod/ablrepo/songyuan" && sha256sum abl.img > abl.sha256 )
+reset_fixtures
+out=$(STUB_PRODUCT=songyuan EXTRACTFV_MODE=ok PATCH_ABL_MODE=novuln run_install up up)
+case "$out" in
+  *"abl 分区已降级并通过校验"*) pass "songyuan: local downgrade completed and verified" ;;
+  *"ABORT: abl repo lookup failed"*) fail "songyuan: local firmware was not used for the downgrade" ;;
+  *) fail "songyuan: downgrade path not reached ($(printf '%s' "$out" | tail -n2 | tr '\n' ' '))" ;;
+esac
+if cmp -s "$WORK/dev/block/by-name/abl_a" "$MODULE/ablrepo/songyuan/abl.img"; then
+  pass "songyuan: the downgrade image landed on the abl partition"
+else
+  fail "songyuan: abl partition does not hold the downgrade image"
+fi
+rm -rf "$WORK/mod/ablrepo/songyuan"
 
 echo "--- a stale patch.log cannot flip the GBL verdict ---"
 # The patch log is appended to, so a leftover from an earlier run used to make a

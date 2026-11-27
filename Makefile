@@ -33,5 +33,19 @@ build_module: build_patcher_android
 	rm -f magisk_module/bin/patch_abl
 	rm -f magisk_module/bin/extractfv
 
+# The three release artifacts. Each target is independent, so a broken toolchain
+# for one platform does not block the others.
+toolkit_android:
+	$(MAKE) -C targets/toolkit_android build
+	mkdir -p release
+	cp targets/toolkit_android/build/toolkit_android.zip release/
+
+toolkit_windows:
+	$(MAKE) -C targets/toolkit_windows build
+	mkdir -p release
+	cp targets/toolkit_windows/build/toolkit_windows.zip release/
+
+release_all: build_module toolkit_android toolkit_windows
+
 test:
 	bash ./tests/runall.sh

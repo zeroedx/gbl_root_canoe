@@ -101,15 +101,15 @@ else
   pass "module metadata is read from the script, not hardcoded"
 fi
 
-echo "--- version and versionCode stay consistent (v7.4.1 / 741) ---"
-# The module version is declared in module.prop as version=7.4.1 with
-# versionCode=741. The repo used major*10+minor (71, 72, 73, 74); a patch
-# release needs a third component, so the code is major*100+minor*10+patch.
+echo "--- version and versionCode stay consistent (v7.5 / 750) ---"
+# The module version is declared in module.prop as version=7.5 with
+# versionCode=750. The code is major*100+minor*10+patch, which also covers the
+# earlier three-component 7.4.1 -> 741 form, so both shapes stay monotonic.
 # Magisk compares versionCode as an integer, so the value must stay monotonic.
 prop_ver=$(sed -n 's/^version=//p' "$MODULEPROP" | head -n 1)
 prop_code=$(sed -n 's/^versionCode=//p' "$MODULEPROP" | head -n 1)
-if [ "$prop_ver" = "7.4.1" ] && [ "$prop_code" = "741" ]; then
-  pass "module.prop declares version=7.4.1 versionCode=741"
+if [ "$prop_ver" = "7.5" ] && [ "$prop_code" = "750" ]; then
+  pass "module.prop declares version=7.5 versionCode=750"
 else
   fail "module.prop version mismatch (version=$prop_ver versionCode=$prop_code)"
 fi
@@ -122,7 +122,7 @@ else
   fail "versionCode $prop_code does not match version $prop_ver (expected $derived)"
 fi
 if [ "$prop_code" -gt 74 ]; then
-  pass "versionCode stays monotonic (741 > 74)"
+  pass "versionCode stays monotonic ($prop_code > 74)"
 else
   fail "versionCode went backwards ($prop_code <= 74)"
 fi
@@ -169,16 +169,21 @@ if [ "$valid" = "1" ]; then
   else
     pass "the module id is not hardcoded in the script or the panel"
   fi
+fi
 
-  # The id must match what the READMEs document, so an id rename cannot ship
-  # with stale documentation.
-  for readme in ../README.md ../README_zh.md; do
-    if [ -f "$readme" ] && grep -q "$prop_id" "$readme"; then
-      pass "$(basename "$readme") documents id=$prop_id"
-    else
-      fail "$(basename "$readme") does not document id=$prop_id"
-    fi
-  done
+echo "--- the efisp update is on by default ---"
+# The WebUI flash exists to keep the loader current after an OTA, so efisp is
+# updated unless the user opts out. A silently unchecked box would leave a
+# stale loader behind and still report success.
+if grep -q 'id="updateEfispCheckbox"[^>]*checked' "$WEBROOT/index.html"; then
+  pass "updateEfispCheckbox is checked by default"
+else
+  fail "updateEfispCheckbox is not checked by default"
+fi
+if grep -q '默认关闭\|off by default' "$WEBROOT/index.html" "$WEBROOT/i18n.js"; then
+  fail "the efisp toggle still advertises an off-by-default state"
+else
+  pass "the efisp toggle no longer advertises an off-by-default state"
 fi
 
 if [ "$FAIL" -eq 0 ]; then

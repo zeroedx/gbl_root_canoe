@@ -225,6 +225,26 @@ flash_and_verify() { # <source> <blockdev>
   return 0
 }
 
+# Map the running device to its ablrepo directory name. Matching is exact, so a
+# device can never fall back to another device's firmware. The nezha global ROM
+# shares the "nezha" codename but ships different ABL firmware, so it is picked
+# out by its global build suffix (...MIXM); every other device maps by codename.
+# Kept in sync with resolve_device() in customize.sh.
+resolve_device() {
+  _product=$(getprop ro.product.name 2>/dev/null)
+  case "$_product" in
+    myron|pudding|popsicle|pandora|nezha_global|byron|songyuan)
+      printf '%s\n' "$_product" ;;
+    nezha)
+      _build="$(getprop ro.build.version.incremental 2>/dev/null)$(getprop ro.build.display.id 2>/dev/null)"
+      case "$_build" in
+        *MIXM*) printf '%s\n' nezha_global ;;
+        *)      printf '%s\n' nezha ;;
+      esac ;;
+    *) return 1 ;;
+  esac
+}
+
 current_pid() {
   if [ -f "$PID_FILE" ]; then
     pid=$(tr -d '[:space:]' < "$PID_FILE")
@@ -410,13 +430,17 @@ UPDATED_AT=${_upd}"
 }
 
 run_flash() {
-  update_efisp="${1:-skip-efisp}"
+  # Normalise the mode once: the WebUI passes "update-efisp", older callers pass
+  # 1/true, and the debug mode implies no efisp write. Every later branch reads
+  # efisp_mode instead of re-testing three spellings of the same flag.
+  efisp_mode=0
   debug_mode="no-debug"
-  # Parse mode
-  case "$update_efisp" in
+  case "${1:-skip-efisp}" in
     "debug")
       debug_mode="debug"
-      update_efisp="skip-efisp"
+      ;;
+    'update-efisp'|'1'|'true')
+      efisp_mode=1
       ;;
   esac
 
@@ -431,6 +455,16 @@ run_flash() {
   : > "$LOG_FILE"
   clean_workdir
 
+  # Device identification is a hard gate on this path too: the WebUI flash runs
+  # after an OTA, when no installer gate has run. An unrecognised device aborts
+  # before any partition is read or written, never falls through to a risky step.
+  _resolved_device=$(resolve_device 2>/dev/null) || {
+    write_state 'error' "未知设备：$(getprop ro.product.name 2>/dev/null) 不在支持列表中，已安全中止（未触碰任何分区）"
+    write_log '未知设备，已安全中止（未触碰任何分区）'
+    exit 1
+  }
+  write_log "设备识别通过：$_resolved_device"
+
   current_slot=$(detect_current_slot 2>/dev/null || true)
   if [ -z "$current_slot" ]; then
     write_state 'error' '无法识别当前槽位'; write_log '无法识别当前槽位'; exit 1
@@ -443,30 +477,19 @@ run_flash() {
   write_state 'running' "正在将镜像刷写到槽位 $target_slot"
   write_log "当前槽位: $current_slot  目标槽位: $target_slot"
 
-  # Debug mode: process but don't flash
+  # Debug mode only ever extracts: the WebUI sends "debug" instead of an efisp
+  # mode, never together with one, so there is no efisp decision to make here.
   if [ "$debug_mode" = "debug" ]; then
     write_log "调试模式：仅处理不刷写"
     abl_part=$(partition_path abl "$target_slot")
-    if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
-      patch_efisp "$abl_part" "$debug_mode"
-      ret=$?
-      if [ $ret -eq 0 ]; then
-        write_state 'success' "调试完成，文件保存在 $RUNTIME_DIR"
-        write_log "调试完成，生成的文件：$RUNTIME_DIR/patched.efi"
-      else
-     write_state 'error' '调试过程中出错'
-        write_log '调试失败，请查看日志'
-      fi
+    write_log '调试模式下仅提取 ABL'
+    rm -f "$RUNTIME_DIR/LinuxLoader.efi"
+    "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$abl_part" >> "$LOG_FILE" 2>&1
+    if [ -f "$RUNTIME_DIR/LinuxLoader.efi" ]; then
+      write_state 'success' "调试完成，ABL 已提取到 $RUNTIME_DIR/LinuxLoader.efi"
+      write_log "调试完成，提取的 ABL：$RUNTIME_DIR/LinuxLoader.efi"
     else
-      write_log '调试模式下未勾选 efisp 更新，仅提取 ABL'
-      rm "$RUNTIME_DIR/LinuxLoader.efi" 2>/dev/null || true
-      "$MODDIR/bin/extractfv" -o "$RUNTIME_DIR" -v "$abl_part" >> "$LOG_FILE" 2>&1
-      if [ -f "$RUNTIME_DIR/LinuxLoader.efi" ]; then
-        write_state 'success' "调试完成，ABL 已提取到 $RUNTIME_DIR/LinuxLoader.efi"
-        write_log "调试完成，提取的 ABL：$RUNTIME_DIR/LinuxLoader.efi"
-      else
-        write_state 'error' 'ABL 提取失败'
-      fi
+      write_state 'error' 'ABL 提取失败'
     fi
     exit 0
   fi
@@ -474,13 +497,14 @@ run_flash() {
   # Back up the partitions this run can write BEFORE flashing. A failed backup
   # aborts the run, so no destructive step depends on a missing backup. Each run
   # writes a new timestamped file and never deletes an existing backup.
+  abl_part=$(partition_path abl "$target_slot")
   write_log '开始备份原始分区'
-  if ! backup_partition "$(partition_path abl "$target_slot")" abl "$target_slot"; then
+  if ! backup_partition "$abl_part" abl "$target_slot"; then
     write_state 'error' 'abl 备份失败，已中止刷写'
     write_log 'abl 备份失败，已中止刷写'
     exit 1
   fi
-  if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
+  if [ "$efisp_mode" -eq 1 ]; then
     if ! backup_partition "$(partition_path efisp "")" efisp "$current_slot"; then
       write_state 'error' 'efisp 备份失败，已中止刷写'
       write_log 'efisp 备份失败，已中止刷写'
@@ -488,9 +512,7 @@ run_flash() {
     fi
   fi
 
-  abl_part=$(partition_path abl "$target_slot")
-
-  if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
+  if [ "$efisp_mode" -eq 1 ]; then
     #patch abl and flash efisp first, since it's the only one that can brick the device if something goes wrong
     #0 success, 1 failed, 2 new ABL version with GBL vulnerability detected
     patch_efisp "$abl_part" "$debug_mode"
@@ -540,7 +562,7 @@ run_flash() {
     write_log "$name 完成"
   done
 
-  if [ "$update_efisp" = 'update-efisp' ] || [ "$update_efisp" = '1' ] || [ "$update_efisp" = 'true' ]; then
+  if [ "$efisp_mode" -eq 1 ]; then
     write_state 'success' "全部刷写完成（含 efisp）"
     write_log '全部镜像与 efisp 刷写完成'
   else
